@@ -50,6 +50,10 @@ spec:
               secretKeyRef:
                 name: hf-token
                 key: HF_TOKEN
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
 ---
 apiVersion: v1
 kind: Service
