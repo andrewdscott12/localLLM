@@ -1,166 +1,204 @@
-# LocalLLM — Kubernetes LLM Stack for NVIDIA DGX Spark
+# LocalLLM Multi-Model Stack (Minikube + OpenWebUI + vLLM)
 
-A self-hosted LLM inference and chat stack running on Minikube, purpose-built for the NVIDIA DGX Spark (GB10 GPU, 128 GB unified memory). Provides a [vLLM](https://github.com/vllm-project/vllm) inference backend for Qwen2.5-14B-Instruct and an [Open WebUI](https://github.com/open-webui/open-webui) frontend, exposed on the local network.
+This repository runs a local Kubernetes-based coding model stack on DGX Spark:
+- OpenWebUI for chat and model selection
+- vLLM as the OpenAI-compatible model backend
+- Minikube + nginx ingress for cluster and routing
+- A model switch script so only one model runs at a time
 
----
+## Files in this repository
 
-## File Descriptions
+- README.md
+  - Setup and operations guide for this stack.
 
-| File | Description |
-|---|---|
-| `qwen.yaml` | Deployment + Service for the Qwen2.5-14B-Instruct model served via vLLM. Tuned for single-GPU throughput: 90% GPU memory utilization, 8192 token context, prefix caching, chunked prefill, and bfloat16. Reads `llm-api-key` and `hf-token` Secrets from the `llm` namespace. |
-| `llm-ingress.yaml` | nginx Ingress in the `llm` namespace. Routes `llm.local/qwen/*` to the Qwen vLLM service with path rewriting. Restricts access to LAN and Minikube subnets. |
-| `openwebui-deployment.yaml` | Deployment + Service for Open WebUI in the `openwebui` namespace. Exposes the web UI on port 8080 as a ClusterIP service. Uses `Recreate` rollout strategy to avoid port conflicts on a single-node cluster. |
-| `openwebui-ingress.yaml` | nginx Ingress in the `openwebui` namespace. Routes all traffic (`/`) to the OpenWebUI service. Disables proxy buffering and sets long timeouts for streaming responses. |
-| `nvidia-time-slicing.yaml` | ConfigMap for the NVIDIA GPU Operator that enables GPU time-slicing with 2 virtual replicas. Allows more than one workload to share the single physical GB10 GPU. |
+- doDeployment.sh
+  - Model switch script.
+  - Removes old model deployments/services in namespace llm.
+  - Deploys the selected model plus shared ingress/OpenWebUI manifests.
 
----
+- model-qwen3-coder-8b.yaml
+  - Deployment + Service for Qwen3-Coder-8B.
+  - Exposes active backend as service llm-active in namespace llm.
 
-## Prerequisites
+- model-deepseek-coder-v3-moe.yaml
+  - Deployment + Service for DeepSeek-Coder V3 MoE.
+  - Exposes active backend as service llm-active in namespace llm.
 
-- Ubuntu 22.04 / 24.04 (DGX OS)
-- NVIDIA GPU Operator already installed in the cluster (for GPU scheduling)
-- `curl`, `apt` available
+- model-codestral-22b.yaml
+  - Deployment + Service for Codestral 22B.
+  - Exposes active backend as service llm-active in namespace llm.
 
----
+- llm-ingress.yaml
+  - nginx ingress for model API path routing.
+  - Routes llm.local/v1/... to service llm-active.
 
-## Installation
+- openwebui-deployment.yaml
+  - OpenWebUI Deployment + Service in namespace openwebui.
 
-### 1. Install kubectl
+- openwebui-ingress.yaml
+  - nginx ingress for OpenWebUI web traffic.
 
-```bash
+- nvidia-time-slicing.yaml
+  - GPU Operator ConfigMap enabling time slicing.
+
+- qwen.yaml
+  - Legacy single-model deployment file from earlier setup.
+  - Not used by doDeployment.sh.
+
+## Install kubectl and Minikube (Linux)
+
+1) Install kubectl
+
 curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 kubectl version --client
-```
 
-### 2. Install Minikube
+2) Install Minikube
 
-```bash
 curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
 minikube version
-```
 
-### 3. Start Minikube with Docker driver
+3) Start Minikube
 
-```bash
-minikube start \
-  --driver=docker \
-  --cpus=no-limit \
-  --memory=no-limit \
-  --gpus=all
-```
+minikube start --driver=docker --cpus=no-limit --memory=no-limit --gpus=all
 
-### 4. Enable the nginx Ingress addon
+4) Enable nginx ingress
 
-```bash
 minikube addons enable ingress
-# Wait for the controller to be ready
 kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx
-```
 
-### 5. Create namespaces
+## One-time Kubernetes setup
 
-```bash
+1) Create namespaces
+
 kubectl create namespace llm
 kubectl create namespace openwebui
-```
 
-### 6. Create required Secrets
+2) Create secrets for llm namespace
 
-```bash
-# Hugging Face token (for model download)
-kubectl create secret generic hf-token \
-  --from-literal=HF_TOKEN=<your-hf-token> \
-  -n llm
+kubectl create secret generic hf-token --from-literal=HF_TOKEN=<your-hf-token> -n llm
+kubectl create secret generic llm-api-key --from-literal=API_KEY=<your-api-key> -n llm
 
-# vLLM API key (used by OpenWebUI to authenticate)
-kubectl create secret generic llm-api-key \
-  --from-literal=API_KEY=<your-chosen-api-key> \
-  -n llm
-```
+## Create a Hugging Face token and set HF_TOKEN in Minikube
 
-### 7. Apply the manifests
+1) Create a token in Hugging Face
 
-```bash
-kubectl apply -f nvidia-time-slicing.yaml
-kubectl apply -f qwen.yaml
-kubectl apply -f llm-ingress.yaml
-kubectl apply -f openwebui-deployment.yaml
-kubectl apply -f openwebui-ingress.yaml
-```
+- Sign in at https://huggingface.co
+- Open Settings -> Access Tokens
+- Create a new token with at least Read permissions
+- Copy the token value (starts with `hf_`)
 
-### 8. Wait for pods to be ready
+2) Create the Kubernetes secret in Minikube
 
-```bash
-kubectl rollout status deployment/qwen-coder -n llm
-kubectl rollout status deployment/openwebui-deployment -n openwebui
-```
+kubectl create secret generic hf-token --from-literal=HF_TOKEN=<your-hf-token> -n llm
 
-The Qwen pod will take several minutes on first start while the model downloads from Hugging Face.
+3) If the secret already exists, update it safely
 
----
+kubectl create secret generic hf-token --from-literal=HF_TOKEN=<your-hf-token> -n llm --dry-run=client -o yaml | kubectl apply -f -
 
-## Exposing OpenWebUI on LAN port 8080
+4) Verify the secret exists
 
-Minikube runs inside Docker with its own bridge network (`192.168.49.0/24`). The nginx ingress controller NodePort for port 80 is `32043`. To forward LAN traffic on port 8080 through to it, add nftables rules on the DGX host:
+kubectl get secret hf-token -n llm
 
-```bash
-# DNAT inbound :8080 to the Minikube nginx NodePort
+5) Restart the active model deployment to pick up the new token
+
+kubectl rollout restart deployment -n llm -l app.kubernetes.io/part-of=localllm-model
+
+Notes:
+- The key name must be exactly HF_TOKEN because model manifests reference that key.
+- If downloads still fail, confirm the token has access to the target model repository.
+
+## Choose and set API_KEY for model access
+
+The vLLM backend is protected by a bearer token stored in secret llm-api-key with key name API_KEY.
+
+1) Choose a strong API key value
+
+- Use a long random string.
+- Example generation command:
+
+openssl rand -hex 32
+
+2) Create the API key secret
+
+kubectl create secret generic llm-api-key --from-literal=API_KEY=<your-api-key> -n llm
+
+3) If the secret already exists, update it safely
+
+kubectl create secret generic llm-api-key --from-literal=API_KEY=<your-api-key> -n llm --dry-run=client -o yaml | kubectl apply -f -
+
+4) Verify the secret exists
+
+kubectl get secret llm-api-key -n llm
+
+5) Restart active model deployment after key rotation
+
+kubectl rollout restart deployment -n llm -l app.kubernetes.io/part-of=localllm-model
+
+6) Use the same API key in OpenWebUI connection settings
+
+- OpenWebUI -> Admin Settings -> Connections
+- For the model endpoint, keep URL as http://llm-active.llm.svc.cluster.local/v1
+- Set Bearer token to your API_KEY value
+
+## Deploy and switch models
+
+Use doDeployment.sh with one of the supported model names:
+
+./doDeployment.sh Qwen3-Coder-8B
+./doDeployment.sh DeepSeek-Coder
+./doDeployment.sh Codestral-22B
+./doDeployment.sh --safe DeepSeek-Coder
+
+What the script does:
+- Deletes model deployments/services not needed for the selected model
+- Applies the selected model manifest
+- Applies nvidia-time-slicing.yaml
+- Applies llm ingress + OpenWebUI deployment + OpenWebUI ingress
+- Waits for rollout completion
+
+Safe mode:
+- Add --safe to force lower memory/concurrency settings at deploy time.
+- Recommended first run on 128 GB unified-memory systems.
+- Example: ./doDeployment.sh --safe Codestral-22B
+
+## Configure OpenWebUI to use the internal model URL
+
+After OpenWebUI is up:
+
+1) Open OpenWebUI in browser
+2) Go to Admin Settings -> Connections
+3) Add OpenAI-compatible connection
+4) Use:
+   - URL: http://llm-active.llm.svc.cluster.local/v1
+   - Bearer token: value of API_KEY from secret llm-api-key (namespace llm)
+5) Verify and save
+
+Important: use the internal service URL above, not the host LAN IP path for model traffic.
+
+## Default tuning profile
+
+Current manifest defaults are conservative for DGX Spark unified memory:
+- Qwen3-Coder-8B: gpu-memory-utilization=0.80, max-model-len=4096, max-num-seqs=2
+- DeepSeek-Coder-V3-MoE: gpu-memory-utilization=0.78, max-model-len=2048, max-num-seqs=2
+- Codestral-22B: gpu-memory-utilization=0.80, max-model-len=2048, max-num-seqs=2
+
+Use --safe for an even lower profile (single-sequence and lower context) if startup or stability issues occur.
+
+## Optional: expose OpenWebUI on LAN port 8080 (Minikube-in-Docker)
+
+If Minikube runs in Docker and you want host:8080 forwarded to ingress NodePort:
+
 sudo nft add rule ip nat PREROUTING tcp dport 8080 dnat to 192.168.49.2:32043
-
-# Allow forwarded traffic through the Docker bridge
-sudo nft insert rule ip filter DOCKER \
-  ip daddr 192.168.49.2 \
-  iifname != "br-0f1fae97cfb7" \
-  oifname "br-0f1fae97cfb7" \
-  tcp dport 32043 counter accept
-
-# Persist across reboots
+sudo nft insert rule ip filter DOCKER ip daddr 192.168.49.2 iifname != "br-0f1fae97cfb7" oifname "br-0f1fae97cfb7" tcp dport 32043 counter accept
 sudo nft list ruleset > /etc/nftables.conf
 sudo systemctl enable nftables
-```
 
-> **Note:** The bridge interface name (`br-0f1fae97cfb7`) may differ on your system. Confirm with `ip link show | grep br-`.
+## Useful checks
 
-OpenWebUI is then reachable at `http://<dgx-lan-ip>:8080` from any host on the LAN.
-
----
-
-## Configuring OpenWebUI to use the Qwen model
-
-Once OpenWebUI is running, connect it to the vLLM backend using the **internal Kubernetes DNS name** rather than the LAN IP. Routing through the LAN IP and back into the cluster via nginx is unnecessary and unreliable.
-
-1. Open OpenWebUI at `http://<dgx-lan-ip>:8080`
-2. Go to **Settings → Admin Settings → Connections**
-3. Under **OpenAI API**, add a new connection:
-   - **URL:** `http://qwen-coder.llm.svc.cluster.local/v1`
-   - **API Key:** the value you set for `API_KEY` in the `llm-api-key` secret
-4. Click **Verify** — the connection should succeed
-5. Click **Save**
-
-The Qwen2.5-14B-Instruct model will appear in the model selector dropdown.
-
----
-
-## Useful Commands
-
-```bash
-# Check pod status
 kubectl get pods -n llm
 kubectl get pods -n openwebui
-
-# Stream vLLM inference logs
-kubectl logs -n llm -l app=qwen-coder -f
-
-# Stream OpenWebUI logs
+kubectl get ingress -A
+kubectl logs -n llm -l app.kubernetes.io/part-of=localllm-model -f
 kubectl logs -n openwebui -l app=openwebui -f
-
-# Stream nginx ingress logs
-kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx -f
-
-# Test the vLLM API directly from the DGX host
-curl http://192.168.1.157/qwen/v1/models \
-  -H "Authorization: Bearer <your-api-key>"
-```

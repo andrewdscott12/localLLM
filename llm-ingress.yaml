@@ -12,11 +12,11 @@ spec:
   - host: llm.local
     http:
       paths:
-      - path: /qwen(/|$)(.*)
+      - path: /v1(/|$)(.*)
         pathType: ImplementationSpecific
         backend:
           service:
-            name: qwen-coder
+            name: llm-active
             port:
               number: 80
 
