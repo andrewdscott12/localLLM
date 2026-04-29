@@ -150,6 +150,8 @@ Use doDeployment.sh with one of the supported model names:
 ./doDeployment.sh DeepSeek-Coder
 ./doDeployment.sh Codestral-22B
 ./doDeployment.sh --safe DeepSeek-Coder
+./doDeployment.sh --check-only DeepSeek-Coder
+./doDeployment.sh --safe --check-only Qwen3-Coder-8B
 
 What the script does:
 - Deletes model deployments/services not needed for the selected model
@@ -158,10 +160,16 @@ What the script does:
 - Applies llm ingress + OpenWebUI deployment + OpenWebUI ingress
 - Waits for rollout completion
 
+Check-only mode:
+- Add --check-only to validate prerequisites without changing cluster resources.
+- Verifies kubectl cluster connectivity, required namespaces, required files, and required secret keys (HF_TOKEN, API_KEY).
+- Example: ./doDeployment.sh --check-only DeepSeek-Coder
+
 Safe mode:
 - Add --safe to force lower memory/concurrency settings at deploy time.
 - Recommended first run on 128 GB unified-memory systems.
 - Example: ./doDeployment.sh --safe Codestral-22B
+- You can combine with check-only: ./doDeployment.sh --safe --check-only Codestral-22B
 
 ## Configure OpenWebUI to use the internal model URL
 

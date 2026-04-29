@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") [--safe] <model>
+  $(basename "$0") [--safe] [--check-only] <model>
 
 Models:
   Qwen3-Coder-8B
@@ -17,15 +17,38 @@ Examples:
   $(basename "$0") DeepSeek-Coder
   $(basename "$0") Qwen3-Coder-8B
   $(basename "$0") --safe Codestral-22B
+  $(basename "$0") --check-only DeepSeek-Coder
+  $(basename "$0") --safe --check-only Qwen3-Coder-8B
 EOF
 }
 
 SAFE_MODE=false
+CHECK_ONLY=false
 
-if [[ $# -eq 2 && "$1" == "--safe" ]]; then
-  SAFE_MODE=true
-  shift
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --safe)
+      SAFE_MODE=true
+      shift
+      ;;
+    --check-only)
+      CHECK_ONLY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "Unknown option: $1"
+      usage
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
 if [[ $# -ne 1 ]]; then
   usage
@@ -73,6 +96,22 @@ if ! command -v kubectl >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ ! -f "$MODEL_MANIFEST" ]]; then
+  echo "Model manifest not found: $MODEL_MANIFEST"
+  exit 1
+fi
+
+for required_file in \
+  "$ROOT_DIR/nvidia-time-slicing.yaml" \
+  "$ROOT_DIR/llm-ingress.yaml" \
+  "$ROOT_DIR/openwebui-deployment.yaml" \
+  "$ROOT_DIR/openwebui-ingress.yaml"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "Required file not found: $required_file"
+    exit 1
+  fi
+done
+
 require_secret_key() {
   local namespace="$1"
   local secret_name="$2"
@@ -90,6 +129,39 @@ require_secret_key() {
     exit 1
   fi
 }
+
+require_namespace() {
+  local namespace="$1"
+  if ! kubectl get namespace "$namespace" >/dev/null 2>&1; then
+    echo "Required namespace missing: $namespace"
+    exit 1
+  fi
+}
+
+echo "Checking cluster connectivity..."
+if ! kubectl cluster-info >/dev/null 2>&1; then
+  echo "Cannot reach Kubernetes cluster with current kubectl context"
+  exit 1
+fi
+
+if [[ "$CHECK_ONLY" == "true" ]]; then
+  echo "Check-only mode: validating prerequisites without applying changes..."
+  require_namespace llm
+  require_namespace openwebui
+  require_secret_key llm hf-token HF_TOKEN
+  require_secret_key llm llm-api-key API_KEY
+
+  cat <<EOF
+
+Check passed.
+
+Selected model: $MODEL
+Safe mode: $SAFE_MODE
+Check-only: $CHECK_ONLY
+Model manifest: $MODEL_MANIFEST
+EOF
+  exit 0
+fi
 
 echo "Ensuring namespaces exist..."
 kubectl create namespace llm --dry-run=client -o yaml | kubectl apply -f -
@@ -134,6 +206,7 @@ Deployment complete.
 
 Selected model: $MODEL
 Safe mode: $SAFE_MODE
+Check-only: $CHECK_ONLY
 Active model service: llm-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 
