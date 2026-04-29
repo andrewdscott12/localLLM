@@ -1,30 +1,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: llm-qwen3-coder-8b
+  name: llm-gpt-oss-20b
   namespace: llm
   labels:
     app.kubernetes.io/part-of: localllm-model
-    app.kubernetes.io/name: llm-qwen3-coder-8b
+    app.kubernetes.io/name: llm-gpt-oss-20b
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: llm-qwen3-coder-8b
+      app: llm-gpt-oss-20b
   template:
     metadata:
       labels:
-        app: llm-qwen3-coder-8b
+        app: llm-gpt-oss-20b
         app.kubernetes.io/part-of: localllm-model
     spec:
       containers:
       - name: vllm
         image: vllm/vllm-openai:latest
         args:
-          - "--model=Qwen/Qwen3-Coder-8B"
-          - "--served-model-name=Qwen3-Coder-8B"
+          - "--model=openai/gpt-oss-20b"
+          - "--served-model-name=gpt-oss-20b"
           - "--host=0.0.0.0"
           - "--port=8000"
           - "--gpu-memory-utilization=0.80"
@@ -34,6 +34,7 @@ spec:
           - "--enable-chunked-prefill"
           - "--dtype"
           - "bfloat16"
+          - "--trust-remote-code"
         ports:
           - containerPort: 8000
         resources:
@@ -64,7 +65,7 @@ metadata:
     app.kubernetes.io/part-of: localllm-model
 spec:
   selector:
-    app: llm-qwen3-coder-8b
+    app: llm-gpt-oss-20b
   ports:
     - port: 80
       targetPort: 8000

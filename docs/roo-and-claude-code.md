@@ -11,7 +11,7 @@ If your client runs on a different machine, map `llm.local` to your DGX LAN IP i
 
 ## Model IDs
 
-- Qwen profile: `Qwen3-Coder-8B`
+- Qwen profile: `Qwen2.5-Coder-7B`
 - DeepSeek profile: `DeepSeek-Coder-V2-Lite-Instruct`
 - Codestral profile: `Codestral-22B`
 
@@ -31,7 +31,7 @@ If your Claude Code build supports OpenAI-compatible backends, set:
 ```bash
 export OPENAI_BASE_URL=http://llm.local/v1
 export OPENAI_API_KEY=<your-api-key>
-export OPENAI_MODEL=Qwen3-Coder-8B
+export OPENAI_MODEL=Qwen2.5-Coder-7B
 ```
 
 Switch model by changing `OPENAI_MODEL`.

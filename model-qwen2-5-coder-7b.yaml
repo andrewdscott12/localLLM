@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-qwen2-5-coder-7b
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+    app.kubernetes.io/name: llm-qwen2-5-coder-7b
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llm-qwen2-5-coder-7b
+  template:
+    metadata:
+      labels:
+        app: llm-qwen2-5-coder-7b
+        app.kubernetes.io/part-of: localllm-model
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - "--model=Qwen/Qwen2.5-Coder-7B"
+          - "--served-model-name=Qwen2.5-Coder-7B"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - "--gpu-memory-utilization=0.80"
+          - "--max-model-len=4096"
+          - "--max-num-seqs=2"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
+          - "--dtype"
+          - "bfloat16"
+        ports:
+          - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        env:
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-api-key
+                key: API_KEY
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: HF_TOKEN
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-active
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+spec:
+  selector:
+    app: llm-qwen2-5-coder-7b
+  ports:
+    - port: 80
+      targetPort: 8000
