@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-ingress
+  namespace: llm
+  annotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,127.0.0.1/32,192.168.49.0/24"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: llm.local
+    http:
+      paths:
+      - path: /qwen(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: qwen-coder
+            port:
+              number: 80
+

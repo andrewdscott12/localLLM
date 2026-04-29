@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen-coder
+  namespace: llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qwen-coder
+  template:
+    metadata:
+      labels:
+        app: qwen-coder
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - "--model=Qwen/Qwen2.5-14B-Instruct"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - "--gpu-memory-utilization=0.90"
+          - "--max-model-len=8192"
+          - "--max-num-seqs=8"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
+          - "--dtype"
+          - "bfloat16"
+        ports:
+          - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        env:
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-api-key
+                key: API_KEY
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: HF_TOKEN
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qwen-coder
+  namespace: llm
+spec:
+  selector:
+    app: qwen-coder
+  ports:
+    - port: 80
+      targetPort: 8000
