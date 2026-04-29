@@ -74,7 +74,7 @@ case "$MODEL" in
     MODEL_MANIFEST="$ROOT_DIR/model-deepseek-coder-v3-moe.yaml"
     MODEL_DEPLOYMENT="llm-deepseek-coder-v3-moe"
     SAFE_GPU_MEMORY_UTILIZATION="0.72"
-    SAFE_MAX_MODEL_LEN="1536"
+    SAFE_MAX_MODEL_LEN="2048"
     SAFE_MAX_NUM_SEQS="1"
     ;;
   Codestral-22B)
