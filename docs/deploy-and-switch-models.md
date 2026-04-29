@@ -14,7 +14,7 @@ It will:
 ## Supported model commands
 
 ```bash
-./doDeployment.sh Qwen3-Coder-8B
+./doDeployment.sh Qwen2.5-Coder-7B
 ./doDeployment.sh DeepSeek-Coder
 ./doDeployment.sh Codestral-22B
 ```
@@ -33,7 +33,7 @@ Validate without changing resources:
 
 ```bash
 ./doDeployment.sh --check-only DeepSeek-Coder
-./doDeployment.sh --safe --check-only Qwen3-Coder-8B
+./doDeployment.sh --safe --check-only Qwen2.5-Coder-7B
 ```
 
 ## Configure OpenWebUI

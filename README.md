@@ -28,7 +28,7 @@ Local Kubernetes LLM stack for DGX Spark using:
 4. Deploy a model:
 
 ```bash
-./doDeployment.sh --safe Qwen3-Coder-8B
+./doDeployment.sh --safe Qwen2.5-Coder-7B
 ```
 
 5. Configure OpenWebUI connection:
@@ -41,12 +41,12 @@ Local Kubernetes LLM stack for DGX Spark using:
 ## Model Switch Commands
 
 ```bash
-./doDeployment.sh Qwen3-Coder-8B
+./doDeployment.sh Qwen2.5-Coder-7B
 ./doDeployment.sh DeepSeek-Coder
 ./doDeployment.sh Codestral-22B
 ./doDeployment.sh --safe DeepSeek-Coder
 ./doDeployment.sh --check-only DeepSeek-Coder
-./doDeployment.sh --safe --check-only Qwen3-Coder-8B
+./doDeployment.sh --safe --check-only Qwen2.5-Coder-7B
 ```
 
 [Back to top](#table-of-contents)
