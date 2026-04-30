@@ -4,15 +4,15 @@ Current default manifest profile is conservative for DGX Spark unified memory:
 
 - Qwen2.5-Coder-7B-Instruct
   - `gpu-memory-utilization=0.80`
-  - `max-model-len=4096`
+  - `max-model-len=32768`
   - `max-num-seqs=2`
 - DeepSeek-Coder-V2-Lite-Instruct
   - `gpu-memory-utilization=0.78`
-  - `max-model-len=2048`
+  - `max-model-len=32768`
   - `max-num-seqs=2`
 - Codestral-22B
   - `gpu-memory-utilization=0.80`
-  - `max-model-len=2048`
+  - `max-model-len=32768`
   - `max-num-seqs=2`
 
 ## Safe mode
@@ -20,7 +20,7 @@ Current default manifest profile is conservative for DGX Spark unified memory:
 Use `--safe` for lower memory pressure and single-sequence behavior:
 
 ```bash
-./doDeployment.sh --safe DeepSeek-Coder
+./doDeployment.sh --safe Qwen/Qwen2.5-Coder-7B-Instruct
 ```
 
 ## Notes
