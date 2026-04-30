@@ -53,10 +53,23 @@ spec:
               secretKeyRef:
                 name: hf-token
                 key: HF_TOKEN
+          - name: HF_HOME
+            value: "/data/hf"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/data/hf/hub"
+          - name: TRANSFORMERS_CACHE
+            value: "/data/hf/transformers"
           - name: OMP_NUM_THREADS
             value: "8"
           - name: OMP_SCHEDULE
             value: "dynamic"
+        volumeMounts:
+          - name: hf-cache
+            mountPath: /data/hf
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: llm-model-cache
 ---
 apiVersion: v1
 kind: Service

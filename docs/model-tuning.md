@@ -2,7 +2,7 @@
 
 Current default manifest profile is conservative for DGX Spark unified memory:
 
-- Qwen2.5-Coder-7B
+- Qwen2.5-Coder-7B-Instruct
   - `gpu-memory-utilization=0.80`
   - `max-model-len=4096`
   - `max-num-seqs=2`

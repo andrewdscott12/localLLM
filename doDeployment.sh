@@ -15,18 +15,16 @@ Optional environment overrides:
 
 Models:
   Qwen2.5-Coder-7B
-  DeepSeek-Coder
+  Qwen2.5-14B-Instruct
   Codestral-22B
-  GPT-OSS-20B
 
 Examples:
-  $(basename "$0") DeepSeek-Coder
   $(basename "$0") Qwen2.5-Coder-7B
+  $(basename "$0") Qwen2.5-14B-Instruct
   $(basename "$0") --safe Codestral-22B
   $(basename "$0") --roo Qwen2.5-Coder-7B
-  $(basename "$0") --check-only DeepSeek-Coder
+  $(basename "$0") --check-only Codestral-22B
   $(basename "$0") --safe --check-only Qwen2.5-Coder-7B
-  $(basename "$0") GPT-OSS-20B
   MAX_MODEL_LEN_OVERRIDE=16384 MAX_NUM_SEQS_OVERRIDE=1 $(basename "$0") Qwen2.5-Coder-7B
 EOF
 }
@@ -88,13 +86,13 @@ case "$MODEL" in
     SAFE_MAX_MODEL_LEN="3072"
     SAFE_MAX_NUM_SEQS="1"
     ;;
-  DeepSeek-Coder)
-    MODEL_MANIFEST="$ROOT_DIR/model-deepseek-coder-v3-moe.yaml"
-    MODEL_DEPLOYMENT="llm-deepseek-coder-v3-moe"
-    SAFE_GPU_MEMORY_UTILIZATION="0.72"
-    SAFE_MAX_MODEL_LEN="2048"
+  Qwen2.5-14B-Instruct)
+    MODEL_MANIFEST="$ROOT_DIR/model-qwen2-5-14b-instruct.yaml"
+    MODEL_DEPLOYMENT="llm-qwen2-5-14b-instruct"
+    SAFE_GPU_MEMORY_UTILIZATION="0.74"
+    SAFE_MAX_MODEL_LEN="3072"
     SAFE_MAX_NUM_SEQS="1"
-    ROO_MEMORY_WARNING="DeepSeek-Coder with a 16K Roo context may need more unified memory headroom than usual. If startup slows, requests fail, or the pod restarts, redeploy with a lower MAX_MODEL_LEN_OVERRIDE or lower GPU_MEMORY_UTILIZATION_OVERRIDE."
+    ROO_MEMORY_WARNING="Qwen2.5-14B-Instruct with a 16K Roo context may run close to memory limits on a single-GPU Spark. If rollout is unstable, lower MAX_MODEL_LEN_OVERRIDE or GPU_MEMORY_UTILIZATION_OVERRIDE."
     ;;
   Codestral-22B)
     MODEL_MANIFEST="$ROOT_DIR/model-codestral-22b.yaml"
@@ -103,14 +101,6 @@ case "$MODEL" in
     SAFE_MAX_MODEL_LEN="1536"
     SAFE_MAX_NUM_SEQS="1"
     ROO_MEMORY_WARNING="Codestral-22B is likely to feel memory pressure with a 16K Roo context on a single-GPU Spark. Expect slower startup or possible OOM unless you reduce context or GPU memory utilization."
-    ;;
-  GPT-OSS-20B)
-    MODEL_MANIFEST="$ROOT_DIR/model-gpt-oss-20b.yaml"
-    MODEL_DEPLOYMENT="llm-gpt-oss-20b"
-    SAFE_GPU_MEMORY_UTILIZATION="0.74"
-    SAFE_MAX_MODEL_LEN="2048"
-    SAFE_MAX_NUM_SEQS="1"
-    ROO_MEMORY_WARNING="GPT-OSS-20B at a 16K Roo context may run close to the memory edge on this hardware. If rollout stalls or throughput collapses, try a smaller context or lower GPU memory utilization."
     ;;
   *)
     echo "Unsupported model: $MODEL"
@@ -130,6 +120,7 @@ if [[ ! -f "$MODEL_MANIFEST" ]]; then
 fi
 
 for required_file in \
+  "$ROOT_DIR/llm-model-cache-pvc.yaml" \
   "$ROOT_DIR/nvidia-time-slicing.yaml" \
   "$ROOT_DIR/llm-ingress.yaml" \
   "$ROOT_DIR/openwebui-deployment.yaml" \
@@ -200,9 +191,12 @@ echo "Validating required secrets..."
 require_secret_key llm hf-token HF_TOKEN
 require_secret_key llm llm-api-key API_KEY
 
+echo "Applying persistent model cache volume..."
+kubectl apply -f "$ROOT_DIR/llm-model-cache-pvc.yaml"
+
 echo "Removing currently deployed model resources..."
 kubectl delete deployment,service -n llm -l app.kubernetes.io/part-of=localllm-model --ignore-not-found=true
-kubectl delete deployment -n llm qwen-coder llm-qwen2-5-coder-7b llm-deepseek-coder-v3-moe llm-codestral-22b llm-gpt-oss-20b --ignore-not-found=true
+kubectl delete deployment -n llm qwen-coder llm-qwen2-5-coder-7b llm-qwen2-5-14b-instruct llm-codestral-22b --ignore-not-found=true
 kubectl delete service -n llm qwen-coder llm-active --ignore-not-found=true
 
 echo "Applying selected model: $MODEL"
@@ -280,7 +274,7 @@ OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f
 
-Note: DeepSeek-Coder-V3-MoE and Codestral-22B are large and may run slowly or fail to load on single-GPU systems.
+Note: Codestral-22B is large and may run slowly or fail to load on single-GPU systems.
 EOF
 
 if [[ "$ROO_MODE" == "true" && -n "$ROO_MEMORY_WARNING" ]]; then
