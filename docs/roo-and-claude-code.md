@@ -9,14 +9,8 @@ All active models are exposed via one OpenAI-compatible endpoint:
 
 If your client runs on a different machine, map `llm.local` to your DGX LAN IP in hosts.
 
-## Model IDs
-
-- Qwen profile: `Qwen2.5-Coder-7B`
-- DeepSeek profile: `DeepSeek-Coder-V2-Lite-Instruct`
-- Codestral profile: `Codestral-22B`
-
 ## Roo plugin
-
+The roo plugin does not behave well with local models and smallish context windows. YMMV here.  
 1. Open Roo model/provider settings
 2. Select OpenAI-compatible mode
 3. Set base URL: `http://llm.local/v1`
@@ -29,12 +23,17 @@ If your client runs on a different machine, map `llm.local` to your DGX LAN IP i
 If your Claude Code build supports OpenAI-compatible backends, set:
 
 ```bash
-export OPENAI_BASE_URL=http://llm.local/v1
-export OPENAI_API_KEY=<your-api-key>
-export OPENAI_MODEL=Qwen2.5-Coder-7B
+export ANTHROPIC_BASE_URL=http://llm.local  # Replace with your local server URL
+export ANTHROPIC_AUTH_TOKEN=<token>         # Value doesn't matter for most local servers
+export CLAUDE_CODE_CONTEXT_WINDOW_SIZE=32000
+export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 ```
 
-Switch model by changing `OPENAI_MODEL`.
+Launch claude with:
+```
+claude --model <modelname>
+```
+The Claude VSCode plugin is hard-wired to the Anthropic authentication infrastructure. This author doesn't have an athropic account, so I could not test it.  
 
 If your Claude Code build is Anthropic-only, use Roo/OpenWebUI for local models or place a gateway in front to translate requests.
 

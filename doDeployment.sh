@@ -2,50 +2,116 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELLIST_FILE="$ROOT_DIR/modellist.txt"
+
+list_available_models() {
+  awk '
+    {
+      line=$0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") {
+        next
+      }
+      print line
+    }
+  ' "$MODELLIST_FILE"
+}
+
+is_model_listed() {
+  local model="$1"
+
+  awk -v model="$model" '
+    {
+      line=$0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") {
+        next
+      }
+      if (line == model) {
+        found=1
+      }
+    }
+    END {
+      if (found) {
+        exit 0
+      }
+      exit 1
+    }
+  ' "$MODELLIST_FILE"
+}
+
+find_manifest_for_model() {
+  local model="$1"
+  local manifest=""
+  local match_count=0
+
+  while IFS= read -r file_path; do
+    if grep -Fq -- "--model=$model" "$file_path"; then
+      manifest="$file_path"
+      match_count=$((match_count + 1))
+    fi
+  done < <(find "$ROOT_DIR" -maxdepth 1 -type f -name "model-*.yaml" | sort)
+
+  if [[ "$match_count" -gt 1 ]]; then
+    echo "Multiple manifests match model $model. Keep only one model-*.yaml with this --model value." >&2
+    return 2
+  fi
+
+  if [[ "$match_count" -eq 1 ]]; then
+    echo "$manifest"
+    return 0
+  fi
+
+  return 1
+}
+
+get_deployment_name_from_manifest() {
+  local manifest="$1"
+
+  awk '
+    /^metadata:/ { in_metadata=1; next }
+    in_metadata && /^  name:/ { print $2; exit }
+  ' "$manifest"
+}
 
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") [--safe] [--roo] [--check-only] <model>
+  $(basename "$0") [--safe] [--check-only] <model>
 
 Optional environment overrides:
-  MAX_MODEL_LEN_OVERRIDE=16384
+  MAX_MODEL_LEN_OVERRIDE=32768
   GPU_MEMORY_UTILIZATION_OVERRIDE=0.82
   MAX_NUM_SEQS_OVERRIDE=1
 
-Models:
-  Qwen2.5-Coder-7B
-  DeepSeek-Coder
-  Codestral-22B
-  GPT-OSS-20B
+Models are read from:
+  $MODELLIST_FILE
 
 Examples:
-  $(basename "$0") DeepSeek-Coder
-  $(basename "$0") Qwen2.5-Coder-7B
-  $(basename "$0") --safe Codestral-22B
-  $(basename "$0") --roo Qwen2.5-Coder-7B
-  $(basename "$0") --check-only DeepSeek-Coder
-  $(basename "$0") --safe --check-only Qwen2.5-Coder-7B
-  $(basename "$0") GPT-OSS-20B
-  MAX_MODEL_LEN_OVERRIDE=16384 MAX_NUM_SEQS_OVERRIDE=1 $(basename "$0") Qwen2.5-Coder-7B
+  $(basename "$0") Qwen/Qwen2.5-Coder-7B-Instruct
+  $(basename "$0") Qwen/Qwen2.5-14B-Instruct
+  $(basename "$0") --safe mistralai/Codestral-22B-v0.1
+  $(basename "$0") --check-only mistralai/Codestral-22B-v0.1
+  $(basename "$0") --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
+  MAX_MODEL_LEN_OVERRIDE=32768 MAX_NUM_SEQS_OVERRIDE=1 $(basename "$0") Qwen/Qwen2.5-Coder-7B-Instruct
 EOF
+
+  if [[ -f "$MODELLIST_FILE" ]]; then
+    echo
+    echo "Available models:"
+    while IFS= read -r model_line; do
+      echo "  $model_line"
+    done < <(list_available_models)
+  fi
 }
 
 SAFE_MODE=false
-ROO_MODE=false
 CHECK_ONLY=false
-
-ROO_MAX_MODEL_LEN="16384"
-ROO_MAX_NUM_SEQS="1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --safe)
       SAFE_MODE=true
-      shift
-      ;;
-    --roo)
-      ROO_MODE=true
       shift
       ;;
     --check-only)
@@ -75,52 +141,41 @@ fi
 MODEL="$1"
 MODEL_MANIFEST=""
 MODEL_DEPLOYMENT=""
-SAFE_GPU_MEMORY_UTILIZATION=""
-SAFE_MAX_MODEL_LEN=""
-SAFE_MAX_NUM_SEQS=""
-ROO_MEMORY_WARNING=""
-
-case "$MODEL" in
-  Qwen2.5-Coder-7B)
-    MODEL_MANIFEST="$ROOT_DIR/model-qwen2-5-coder-7b.yaml"
-    MODEL_DEPLOYMENT="llm-qwen2-5-coder-7b"
-    SAFE_GPU_MEMORY_UTILIZATION="0.78"
-    SAFE_MAX_MODEL_LEN="3072"
-    SAFE_MAX_NUM_SEQS="1"
-    ;;
-  DeepSeek-Coder)
-    MODEL_MANIFEST="$ROOT_DIR/model-deepseek-coder-v3-moe.yaml"
-    MODEL_DEPLOYMENT="llm-deepseek-coder-v3-moe"
-    SAFE_GPU_MEMORY_UTILIZATION="0.72"
-    SAFE_MAX_MODEL_LEN="2048"
-    SAFE_MAX_NUM_SEQS="1"
-    ROO_MEMORY_WARNING="DeepSeek-Coder with a 16K Roo context may need more unified memory headroom than usual. If startup slows, requests fail, or the pod restarts, redeploy with a lower MAX_MODEL_LEN_OVERRIDE or lower GPU_MEMORY_UTILIZATION_OVERRIDE."
-    ;;
-  Codestral-22B)
-    MODEL_MANIFEST="$ROOT_DIR/model-codestral-22b.yaml"
-    MODEL_DEPLOYMENT="llm-codestral-22b"
-    SAFE_GPU_MEMORY_UTILIZATION="0.74"
-    SAFE_MAX_MODEL_LEN="1536"
-    SAFE_MAX_NUM_SEQS="1"
-    ROO_MEMORY_WARNING="Codestral-22B is likely to feel memory pressure with a 16K Roo context on a single-GPU Spark. Expect slower startup or possible OOM unless you reduce context or GPU memory utilization."
-    ;;
-  GPT-OSS-20B)
-    MODEL_MANIFEST="$ROOT_DIR/model-gpt-oss-20b.yaml"
-    MODEL_DEPLOYMENT="llm-gpt-oss-20b"
-    SAFE_GPU_MEMORY_UTILIZATION="0.74"
-    SAFE_MAX_MODEL_LEN="2048"
-    SAFE_MAX_NUM_SEQS="1"
-    ROO_MEMORY_WARNING="GPT-OSS-20B at a 16K Roo context may run close to the memory edge on this hardware. If rollout stalls or throughput collapses, try a smaller context or lower GPU memory utilization."
-    ;;
-  *)
-    echo "Unsupported model: $MODEL"
-    usage
-    exit 1
-    ;;
-esac
+SAFE_GPU_MEMORY_UTILIZATION="0.74"
+SAFE_MAX_MODEL_LEN="32768"
+SAFE_MAX_NUM_SEQS="1"
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is not installed or not in PATH"
+  exit 1
+fi
+
+if [[ ! -f "$MODELLIST_FILE" ]]; then
+  echo "Model list not found: $MODELLIST_FILE"
+  echo "Create it with one Hugging Face model path per line."
+  exit 1
+fi
+
+if ! is_model_listed "$MODEL"; then
+  echo "Model is not listed in $MODELLIST_FILE: $MODEL"
+  usage
+  exit 1
+fi
+
+if ! MODEL_MANIFEST="$(find_manifest_for_model "$MODEL")"; then
+  lookup_status=$?
+  if [[ "$lookup_status" -eq 2 ]]; then
+    exit 1
+  fi
+
+  echo "No deployment manifest found for model: $MODEL"
+  echo "Run ./genModelDeployment.sh to generate missing model manifests."
+  exit 1
+fi
+
+MODEL_DEPLOYMENT="$(get_deployment_name_from_manifest "$MODEL_MANIFEST")"
+if [[ -z "$MODEL_DEPLOYMENT" ]]; then
+  echo "Failed to determine deployment name from manifest: $MODEL_MANIFEST"
   exit 1
 fi
 
@@ -130,6 +185,8 @@ if [[ ! -f "$MODEL_MANIFEST" ]]; then
 fi
 
 for required_file in \
+  "$MODELLIST_FILE" \
+  "$ROOT_DIR/llm-model-cache-pvc.yaml" \
   "$ROOT_DIR/nvidia-time-slicing.yaml" \
   "$ROOT_DIR/llm-ingress.yaml" \
   "$ROOT_DIR/openwebui-deployment.yaml" \
@@ -185,7 +242,6 @@ Check passed.
 
 Selected model: $MODEL
 Safe mode: $SAFE_MODE
-Roo mode: $ROO_MODE
 Check-only: $CHECK_ONLY
 Model manifest: $MODEL_MANIFEST
 EOF
@@ -200,9 +256,11 @@ echo "Validating required secrets..."
 require_secret_key llm hf-token HF_TOKEN
 require_secret_key llm llm-api-key API_KEY
 
+echo "Applying persistent model cache volume..."
+kubectl apply -f "$ROOT_DIR/llm-model-cache-pvc.yaml"
+
 echo "Removing currently deployed model resources..."
 kubectl delete deployment,service -n llm -l app.kubernetes.io/part-of=localllm-model --ignore-not-found=true
-kubectl delete deployment -n llm qwen-coder llm-qwen2-5-coder-7b llm-deepseek-coder-v3-moe llm-codestral-22b llm-gpt-oss-20b --ignore-not-found=true
 kubectl delete service -n llm qwen-coder llm-active --ignore-not-found=true
 
 echo "Applying selected model: $MODEL"
@@ -216,11 +274,6 @@ if [[ "$SAFE_MODE" == "true" ]]; then
   PATCH_GPU_MEMORY_UTILIZATION="$SAFE_GPU_MEMORY_UTILIZATION"
   PATCH_MAX_MODEL_LEN="$SAFE_MAX_MODEL_LEN"
   PATCH_MAX_NUM_SEQS="$SAFE_MAX_NUM_SEQS"
-fi
-
-if [[ "$ROO_MODE" == "true" ]]; then
-  PATCH_MAX_MODEL_LEN="$ROO_MAX_MODEL_LEN"
-  PATCH_MAX_NUM_SEQS="$ROO_MAX_NUM_SEQS"
 fi
 
 if [[ -n "${GPU_MEMORY_UTILIZATION_OVERRIDE:-}" ]]; then
@@ -272,7 +325,6 @@ Deployment complete.
 
 Selected model: $MODEL
 Safe mode: $SAFE_MODE
-Roo mode: $ROO_MODE
 Check-only: $CHECK_ONLY
 Active model service: llm-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
@@ -280,13 +332,5 @@ OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f
 
-Note: DeepSeek-Coder-V3-MoE and Codestral-22B are large and may run slowly or fail to load on single-GPU systems.
+Note: Codestral-22B is large and may run slowly or fail to load on single-GPU systems.
 EOF
-
-if [[ "$ROO_MODE" == "true" && -n "$ROO_MEMORY_WARNING" ]]; then
-  cat <<EOF
-
-Roo warning:
-$ROO_MEMORY_WARNING
-EOF
-fi
