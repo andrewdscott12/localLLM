@@ -22,13 +22,13 @@ Local Kubernetes LLM stack for DGX Spark using:
 3. Validate prerequisites without deploying:
 
 ```bash
-./doDeployment.sh --check-only DeepSeek-Coder
+./doDeployment.sh --check-only Qwen/Qwen2.5-14B-Instruct
 ```
 
 4. Deploy a model:
 
 ```bash
-./doDeployment.sh --safe Qwen2.5-Coder-7B
+./doDeployment.sh --safe Qwen/Qwen2.5-Coder-7B
 ```
 
 5. Configure OpenWebUI connection:
@@ -41,12 +41,11 @@ Local Kubernetes LLM stack for DGX Spark using:
 ## Model Switch Commands
 
 ```bash
-./doDeployment.sh Qwen2.5-Coder-7B
-./doDeployment.sh DeepSeek-Coder
-./doDeployment.sh Codestral-22B
-./doDeployment.sh --safe DeepSeek-Coder
-./doDeployment.sh --check-only DeepSeek-Coder
-./doDeployment.sh --safe --check-only Qwen2.5-Coder-7B
+./doDeployment.sh qwen/Qwen2.5-Coder-7B
+./doDeployment.sh mistralai/Codestral-22B
+./doDeployment.sh --safe Qwen/Qwen2.5-14B-Instruct
+./doDeployment.sh --check-only meta-llama/Llama-3.1-8B-Instruct
+./doDeployment.sh --safe --check-only Qwen/Qwen2.5-Coder-7B
 ```
 
 [Back to top](#table-of-contents)
