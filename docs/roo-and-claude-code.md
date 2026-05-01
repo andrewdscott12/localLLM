@@ -9,6 +9,30 @@ All active models are exposed via one OpenAI-compatible endpoint:
 
 If your client runs on a different machine, map `llm.local` to your DGX LAN IP in hosts.
 
+## Tested model limitations
+
+Current practical status from local testing:
+
+- `meta-llama/Llama-3.1-8B-Instruct`
+	- Best current option for Roo agentic use in this repo
+	- Working parser path is `llama3_json`
+	- Claude Code remains unreliable even when plain chat works
+    - This model will dangerously hallucinate and try to wipe out your project. *You have been warned.*
+- `Qwen/Qwen2.5-Coder-7B-Instruct`
+	- Good plain chat and coding quality
+	- Roo and Claude can fall into tool-loop or malformed tool-response behavior
+- `google/gemma-4-E4B-it`
+	- Fast for chat
+	- Tool-use compatibility has not been reliable enough for agent workflows
+- `mistralai/Codestral-22B-v0.1`
+	- Strong candidate for local coding and agentic use
+	- Still considered experimental until tool-use behavior is confirmed end-to-end
+
+Recommendation:
+
+- Prefer Roo over Claude Code for local agentic workflows
+- Treat Claude Code as experimental with locally hosted models in this stack
+
 ## Roo plugin
 The roo plugin does not behave well with local models and smallish context windows. YMMV here.  
 1. Open Roo model/provider settings
