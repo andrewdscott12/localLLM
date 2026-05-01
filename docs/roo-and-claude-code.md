@@ -14,7 +14,6 @@ If your client runs on a different machine, map `llm.local` to your DGX LAN IP i
 Current practical status from local testing:
 
 - `meta-llama/Llama-3.1-8B-Instruct`
-	- Best current option for Roo agentic use in this repo
 	- Working parser path is `llama3_json`
 	- Claude Code remains unreliable even when plain chat works
     - This model will dangerously hallucinate and try to wipe out your project. *You have been warned.*
@@ -27,6 +26,10 @@ Current practical status from local testing:
 - `mistralai/Codestral-22B-v0.1`
 	- Strong candidate for local coding and agentic use
 	- Still considered experimental until tool-use behavior is confirmed end-to-end
+- `Qwen/Qwen3-Coder-30B-A3B-Instruct`
+    - **Recommended model for Roo agentic use.** Demonstrated reliable file read/write and command execution.
+    - Streaming format validated: clean `delta.tool_calls`, no thinking tokens, correct `finish_reason: tool_calls`.
+    - **Claude Code: tool calls hallucinated.** The model emits well-formed tool call JSON for simple prompts, but under Claude Code's full multi-tool system prompt it falls back to describing actions in natural language instead of calling tools (e.g. `/debug` reports "created debug_log_analysis.md" but no file is written). This is a fine-tuning gap — the model does not reliably follow Claude Code's bespoke tool schema at 30B scale.
 
 Recommendation:
 
