@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELLIST_FILE="$ROOT_DIR/modellist.txt"
 DEPLOYMENT_DIR="$ROOT_DIR/deploymentFiles"
+IMAGE_MODEL_ID="stabilityai/stable-diffusion-3.5-large-tensorrt"
 
 list_available_models() {
   awk '
@@ -63,7 +64,39 @@ find_manifest_for_model() {
     return 0
   fi
 
+  while IFS= read -r file_path; do
+    if grep -Fq -- "app.kubernetes.io/model-id: $model" "$file_path" || grep -Fq -- "app.kubernetes.io/model-id: \"$model\"" "$file_path"; then
+      manifest="$file_path"
+      match_count=$((match_count + 1))
+    fi
+  done < <(find "$DEPLOYMENT_DIR" -maxdepth 1 -type f -name "*.yaml" | sort)
+
+  if [[ "$match_count" -gt 1 ]]; then
+    echo "Multiple manifests match model $model by app.kubernetes.io/model-id label." >&2
+    return 2
+  fi
+
+  if [[ "$match_count" -eq 1 ]]; then
+    echo "$manifest"
+    return 0
+  fi
+
   return 1
+}
+
+manifest_kind() {
+  local manifest="$1"
+
+  if grep -Fq -- "app.kubernetes.io/part-of: localllm-image" "$manifest"; then
+    echo "image"
+  else
+    echo "llm"
+  fi
+}
+
+manifest_is_vllm() {
+  local manifest="$1"
+  grep -Fq -- "image: vllm/vllm-openai" "$manifest"
 }
 
 get_deployment_name_from_manifest() {
@@ -92,6 +125,7 @@ Models are read from:
 Examples:
   $(basename "$0") Qwen/Qwen2.5-Coder-7B-Instruct
   $(basename "$0") Qwen/Qwen2.5-14B-Instruct
+  $(basename "$0") $IMAGE_MODEL_ID
   $(basename "$0") --safe deepseek-ai/deepseek-coder-33b-instruct
   $(basename "$0") --check-only deepseek-ai/deepseek-coder-33b-instruct
   $(basename "$0") --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
@@ -143,6 +177,8 @@ fi
 MODEL="$1"
 MODEL_MANIFEST=""
 MODEL_DEPLOYMENT=""
+MODEL_KIND="llm"
+MODEL_IS_VLLM="false"
 SAFE_GPU_MEMORY_UTILIZATION="0.74"
 SAFE_MAX_MODEL_LEN="32768"
 SAFE_MAX_NUM_SEQS="1"
@@ -184,6 +220,11 @@ MODEL_DEPLOYMENT="$(get_deployment_name_from_manifest "$MODEL_MANIFEST")"
 if [[ -z "$MODEL_DEPLOYMENT" ]]; then
   echo "Failed to determine deployment name from manifest: $MODEL_MANIFEST"
   exit 1
+fi
+
+MODEL_KIND="$(manifest_kind "$MODEL_MANIFEST")"
+if manifest_is_vllm "$MODEL_MANIFEST"; then
+  MODEL_IS_VLLM="true"
 fi
 
 if [[ ! -f "$MODEL_MANIFEST" ]]; then
@@ -316,7 +357,9 @@ kubectl apply -f "$DEPLOYMENT_DIR/llm-model-cache-pvc.yaml"
 
 echo "Removing currently deployed model resources..."
 kubectl delete deployment,service -n llm -l app.kubernetes.io/part-of=localllm-model --ignore-not-found=true
+kubectl delete deployment,service -n llm -l app.kubernetes.io/part-of=localllm-image --ignore-not-found=true
 kubectl delete service -n llm qwen-coder llm-active --ignore-not-found=true
+kubectl delete service -n llm t2i-active --ignore-not-found=true
 
 echo "Applying selected model: $MODEL"
 kubectl apply -f "$MODEL_MANIFEST"
@@ -343,7 +386,7 @@ if [[ -n "${MAX_NUM_SEQS_OVERRIDE:-}" ]]; then
   PATCH_MAX_NUM_SEQS="$MAX_NUM_SEQS_OVERRIDE"
 fi
 
-if [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PATCH_MAX_NUM_SEQS" ]]; then
+if [[ ( -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PATCH_MAX_NUM_SEQS" ) && "$MODEL_IS_VLLM" == "true" ]]; then
   patch_ops=()
 
   if [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" ]]; then
@@ -360,6 +403,8 @@ if [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PA
 
   echo "Applying deployment overrides..."
   kubectl patch deployment "$MODEL_DEPLOYMENT" -n llm --type='json' -p="[$(IFS=,; echo "${patch_ops[*]}")]"
+elif [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PATCH_MAX_NUM_SEQS" ]]; then
+  echo "Deployment overrides were requested, but selected manifest is not vLLM. Skipping override patch."
 fi
 
 echo "Applying shared ingress and OpenWebUI resources..."
@@ -379,12 +424,13 @@ cat <<EOF
 Deployment complete.
 
 Selected model: $MODEL
+Model kind: $MODEL_KIND
 Safe mode: $SAFE_MODE
 Check-only: $CHECK_ONLY
-Active model service: llm-active.llm.svc.cluster.localminikube image load localllm/sd35-trt:latest
-kubectl apply -f deploymentFiles/stable-diffusion-3-5-tensorrt.yaml
-kubectl rollout status deployment/t2i-stable-diffusion-3-5-large-tensorrt -n llm --timeout=20m
+Active model service: llm-active.llm.svc.cluster.local
+Image generation service: t2i-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
+Image endpoint URL: http://image.local/v1/images/generations
 
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f

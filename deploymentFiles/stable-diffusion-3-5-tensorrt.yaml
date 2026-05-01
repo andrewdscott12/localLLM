@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: localllm-image
     app.kubernetes.io/name: t2i-stable-diffusion-3-5-large-tensorrt
+    app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
 spec:
   replicas: 1
   strategy:
@@ -18,6 +19,7 @@ spec:
       labels:
         app: t2i-stable-diffusion-3-5-large-tensorrt
         app.kubernetes.io/part-of: localllm-image
+        app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
     spec:
       runtimeClassName: nvidia
       containers:
@@ -74,6 +76,7 @@ metadata:
   namespace: llm
   labels:
     app.kubernetes.io/part-of: localllm-image
+    app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
 spec:
   selector:
     app: t2i-stable-diffusion-3-5-large-tensorrt
@@ -89,8 +92,8 @@ metadata:
   namespace: llm
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "32m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: nginx
   rules:

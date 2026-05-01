@@ -55,6 +55,7 @@ When you add a new model path to `modellist.txt`, generate missing deployment ma
 ```bash
 ./doDeployment.sh Qwen/Qwen2.5-Coder-7B-Instruct
 ./doDeployment.sh deepseek-ai/deepseek-coder-33b-instruct
+./doDeployment.sh stabilityai/stable-diffusion-3.5-large-tensorrt
 ./doDeployment.sh --safe Qwen/Qwen2.5-14B-Instruct
 ./doDeployment.sh --check-only deepseek-ai/deepseek-coder-33b-instruct
 ./doDeployment.sh --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
@@ -66,18 +67,25 @@ When you add a new model path to `modellist.txt`, generate missing deployment ma
 
 Stable Diffusion 3.5 Large is deployed separately from the vLLM model-switching flow. It uses NVIDIA's TensorRT OSS diffusion demo inside a custom image.
 
+How this differs from vLLM model deployments:
+
+- Runtime is TensorRT OSS diffusion scripts, not `vllm/vllm-openai`
+- You must build and load a custom image first (`localllm/sd35-trt:latest`)
+- First generation is much slower than later runs because ONNX and TensorRT engines are built on demand
+- API surface is image-focused (`/v1/images/generations` and `/generate`) instead of chat completions
+- vLLM-safe overrides in `doDeployment.sh` (`--safe`, max model len, seq count patches) do not apply to this image runtime
+
 Build the image from the repo root:
 
 ```bash
 docker build -f sd35-trt.dockerfile -t localllm/sd35-trt:latest .
 ```
 
-Load it into Minikube and deploy it:
+Load it into Minikube and deploy via `doDeployment.sh`:
 
 ```bash
 minikube image load localllm/sd35-trt:latest
-kubectl apply -f deploymentFiles/stable-diffusion-3-5-tensorrt.yaml
-kubectl rollout status deployment/t2i-stable-diffusion-3-5-large-tensorrt -n llm --timeout=20m
+./doDeployment.sh stabilityai/stable-diffusion-3.5-large-tensorrt
 ```
 
 The first request will be slow because ONNX assets and TensorRT engines are downloaded and built under `/data/sd35` on the shared PVC.
@@ -96,13 +104,45 @@ curl -s http://image.local/generate \
    }'
 ```
 
+OpenAI-compatible image request:
+
+```bash
+curl -s http://image.local/v1/images/generations \
+   -H "Content-Type: application/json" \
+   -d '{
+      "model": "sd35-large-tensorrt",
+      "prompt": "a cinematic photo of a rainy neon alley",
+      "size": "1024x1024",
+      "response_format": "b64_json",
+      "denoising_steps": 30,
+      "guidance_scale": 3.5
+   }'
+```
+
+### Connecting OpenWebUI to the Image Generator
+
+OpenWebUI supports image generation backends via **Settings → Images**. This service does **not** require a bearer token — the server has no auth middleware. Use these values:
+
+| Field | Value |
+|---|---|
+| **Image Generation Engine** | OpenAI |
+| **Base URL** | `http://image.local/v1` (LAN) or `http://sd35-svc.llm.svc.cluster.local/v1` (in-cluster) |
+| **API Key** | any non-empty string (e.g. `none`) — the server ignores it |
+| **Image Generation Model** | `sd35-large-tensorrt` |
+| **Image Size** | `1024x1024` |
+
+> **This is separate from the LLM connection.** The LLM connection (Settings → Connections) uses `http://llm-active.llm.svc.cluster.local/v1` with your actual `API_KEY` bearer token. The image connection uses a different URL, a different settings page, and no real auth.
+
+After saving, an image icon will appear in the OpenWebUI chat input bar. Click it to toggle image generation mode.
+
 [Back to top](#table-of-contents)
 
 ## Client Endpoints
 
 - Internal cluster endpoint (OpenWebUI): `http://llm-active.llm.svc.cluster.local/v1`
 - LAN/client endpoint (Roo, external tools): `http://llm.local/v1`
-- LAN image endpoint: `http://image.local/generate`
+- LAN image endpoint (native): `http://image.local/generate`
+- LAN image endpoint (OpenAI-compatible): `http://image.local/v1/images/generations`
 
 If using LAN clients, map `llm.local` and `image.local` to your DGX LAN IP in your host file.
 
