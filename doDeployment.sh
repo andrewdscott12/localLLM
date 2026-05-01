@@ -381,5 +381,5 @@ OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f
 
-Note: Codestral-22B is large and may run slowly or fail to load on single-GPU systems.
+To update to a different model, run this script again with the new model name. It will remove the old deployment and create a new one.
 EOF

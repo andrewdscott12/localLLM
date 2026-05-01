@@ -26,6 +26,7 @@ Current practical status from local testing:
 - `deepseek-ai/deepseek-coder-33b-instruct`
 	- Not yet tested for agentic use
 	- Uses `hermes` tool call parser; tool use compatibility unconfirmed
+    - Larger 128K context window
 - `Qwen/Qwen3-Coder-30B-A3B-Instruct`
     - **Recommended model for Roo agentic use.** Demonstrated reliable file read/write and command execution.
     - Streaming format validated: clean `delta.tool_calls`, no thinking tokens, correct `finish_reason: tool_calls`.
