@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: t2i-stable-diffusion-3-5-large-tensorrt
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-image
+    app.kubernetes.io/name: t2i-stable-diffusion-3-5-large-tensorrt
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: t2i-stable-diffusion-3-5-large-tensorrt
+  template:
+    metadata:
+      labels:
+        app: t2i-stable-diffusion-3-5-large-tensorrt
+        app.kubernetes.io/part-of: localllm-image
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: sd35-trt
+        image: localllm/sd35-trt:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: HF_TOKEN
+        - name: HF_HOME
+          value: /data/hf
+        - name: HUGGINGFACE_HUB_CACHE
+          value: /data/hf/hub
+        - name: TRANSFORMERS_CACHE
+          value: /data/hf/transformers
+        - name: SD35_VERSION
+          value: "3.5-large"
+        - name: SD35_PRECISION
+          value: "bf16"
+        - name: SD35_ONNX_DIR
+          value: /data/sd35/onnx
+        - name: SD35_ENGINE_DIR
+          value: /data/sd35/engine
+        - name: SD35_HOST
+          value: 0.0.0.0
+        - name: SD35_PORT
+          value: "8000"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: model-cache
+          mountPath: /data
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: llm-model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: t2i-active
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-image
+spec:
+  selector:
+    app: t2i-stable-diffusion-3-5-large-tensorrt
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: t2i-ingress
+  namespace: llm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: image.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: t2i-active
+            port:
+              number: 80
