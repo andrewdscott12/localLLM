@@ -69,8 +69,9 @@ get_deployment_name_from_manifest() {
   local manifest="$1"
 
   awk '
-    /^metadata:/ { in_metadata=1; next }
-    in_metadata && /^  name:/ { print $2; exit }
+    /^kind:[[:space:]]*Deployment$/ { in_deployment=1; next }
+    in_deployment && /^metadata:/ { in_metadata=1; next }
+    in_deployment && in_metadata && /^  name:/ { print $2; exit }
   ' "$manifest"
 }
 
@@ -223,6 +224,41 @@ require_namespace() {
   fi
 }
 
+gpu_operator_installed() {
+  kubectl get deployment gpu-operator -n gpu-operator >/dev/null 2>&1
+}
+
+ensure_gpu_operator() {
+  if gpu_operator_installed; then
+    echo "GPU Operator is already installed."
+    return 0
+  fi
+
+  if ! command -v helm >/dev/null 2>&1; then
+    echo "GPU Operator is not installed and helm is not available to install it."
+    echo "Install helm, then rerun deployment."
+    exit 1
+  fi
+
+  echo "GPU Operator not found. Installing with Helm..."
+
+  if ! helm repo list | awk 'NR > 1 { print $1 }' | grep -Fxq nvidia; then
+    helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+  fi
+
+  helm repo update nvidia
+
+  helm upgrade --install gpu-operator nvidia/gpu-operator \
+    --namespace gpu-operator \
+    --create-namespace \
+    --wait \
+    --timeout 20m \
+    --set driver.enabled=false \
+    --set toolkit.enabled=false
+
+  kubectl rollout status deployment/gpu-operator -n gpu-operator --timeout=10m
+}
+
 echo "Checking cluster connectivity..."
 if ! kubectl cluster-info >/dev/null 2>&1; then
   echo "Cannot reach Kubernetes cluster with current kubectl context"
@@ -236,6 +272,16 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
   require_secret_key llm hf-token HF_TOKEN
   require_secret_key llm llm-api-key API_KEY
 
+  if gpu_operator_installed; then
+    gpu_operator_status="installed"
+  else
+    gpu_operator_status="missing (will be installed during deployment)"
+    if ! command -v helm >/dev/null 2>&1; then
+      echo "GPU Operator is missing and helm is not installed."
+      exit 1
+    fi
+  fi
+
   cat <<EOF
 
 Check passed.
@@ -243,6 +289,7 @@ Check passed.
 Selected model: $MODEL
 Safe mode: $SAFE_MODE
 Check-only: $CHECK_ONLY
+GPU Operator: $gpu_operator_status
 Model manifest: $MODEL_MANIFEST
 EOF
   exit 0
@@ -251,6 +298,8 @@ fi
 echo "Ensuring namespaces exist..."
 kubectl create namespace llm --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace openwebui --dry-run=client -o yaml | kubectl apply -f -
+
+ensure_gpu_operator
 
 echo "Validating required secrets..."
 require_secret_key llm hf-token HF_TOKEN

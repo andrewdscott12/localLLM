@@ -33,6 +33,27 @@ Launch claude with:
 ```
 claude --model <modelname>
 ```
+
+For this Llama deployment, use model name:
+
+```bash
+claude --model Llama-3.1-8B-Instruct
+```
+
+If your Claude setup supports `settings.json`, use values equivalent to:
+
+```json
+{
+	"env": {
+		"ANTHROPIC_BASE_URL": "http://llm.local",
+		"ANTHROPIC_AUTH_TOKEN": "<your-api-key>",
+		"CLAUDE_CODE_CONTEXT_WINDOW_SIZE": "32768",
+		"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+	},
+	"model": "Llama-3.1-8B-Instruct"
+}
+```
+
 The Claude VSCode plugin is hard-wired to the Anthropic authentication infrastructure. This author doesn't have an athropic account, so I could not test it.  
 
 If your Claude Code build is Anthropic-only, use Roo/OpenWebUI for local models or place a gateway in front to translate requests.

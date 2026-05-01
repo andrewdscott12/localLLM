@@ -1,47 +1,50 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: llm-google-gemma-4-e4b-it
+  name: llm-meta-llama-llama-3-1-8b-instruct
   namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+    app.kubernetes.io/name: llm-meta-llama-llama-3-1-8b-instruct
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: llm-google-gemma-4-e4b-it
+      app: llm-meta-llama-llama-3-1-8b-instruct
   template:
     metadata:
       labels:
-        app: llm-google-gemma-4-e4b-it
+        app: llm-meta-llama-llama-3-1-8b-instruct
+        app.kubernetes.io/part-of: localllm-model
     spec:
       containers:
       - name: vllm
         image: vllm/vllm-openai:latest
         args:
-          - "--model=google/gemma-4-E4B-it"
-          - "--served-model-name=gemma-4-e4b-it"
+          - "--model=meta-llama/Llama-3.1-8B-Instruct"
+          - "--served-model-name=Llama-3.1-8B-Instruct"
           - "--host=0.0.0.0"
           - "--port=8000"
           - "--gpu-memory-utilization=0.80"
           - "--max-model-len=32768"
-          # PROTOCOL TRANSLATION LAYER
+          - "--max-num-seqs=1"
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=openai"
-          - "--chat-template=/app/templates/tool_use.jinja" 
-          # PERFORMANCE & STABILITY
+          - "--tool-call-parser"
+          - "pythonic"
+          - "--generation-config=vllm"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
           - "--kv-cache-dtype=fp8"
-          - "--disable-custom-all-reduce"
+          - "--dtype"
+          - "bfloat16"
         ports:
           - containerPort: 8000
         resources:
           limits:
             nvidia.com/gpu: 1
         env:
-          - name: NCCL_P2P_LEVEL
-            value: "SYS"
-          - name: VLLM_ATTENTION_BACKEND
-            value: "FLASH_ATTN"
           - name: VLLM_API_KEY
             valueFrom:
               secretKeyRef:
@@ -58,27 +61,28 @@ spec:
             value: "/data/hf/hub"
           - name: TRANSFORMERS_CACHE
             value: "/data/hf/transformers"
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
         volumeMounts:
           - name: hf-cache
             mountPath: /data/hf
-          - name: template-volume
-            mountPath: /app/templates
       volumes:
         - name: hf-cache
           persistentVolumeClaim:
             claimName: llm-model-cache
-        - name: template-volume
-          configMap:
-            name: gemma-template
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: llm-active
   namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
 spec:
   selector:
-    app: llm-google-gemma-4-e4b-it
+    app: llm-meta-llama-llama-3-1-8b-instruct
   ports:
     - port: 80
       targetPort: 8000
