@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -59,25 +60,46 @@ def healthz() -> dict[str, str]:
 def generate(request: ImageRequest) -> dict[str, str]:
     work_dir = Path("/opt/TensorRT/demo/Diffusion")
     with tempfile.TemporaryDirectory(prefix="sd35-out-") as output_dir:
-        result = subprocess.run(
-            build_command(request, output_dir),
+        command = build_command(request, output_dir)
+        print(
+            f"[{datetime.now(timezone.utc).isoformat()}] /generate start "
+            f"size={request.width}x{request.height} steps={request.denoising_steps}"
+        )
+        process = subprocess.Popen(
+            command,
             cwd=work_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
 
-        if result.returncode != 0:
+        output_lines: list[str] = []
+        if process.stdout is not None:
+            for line in process.stdout:
+                print(line, end="")
+                output_lines.append(line)
+
+        return_code = process.wait()
+        combined_output = "".join(output_lines)
+
+        if return_code != 0:
             raise HTTPException(
                 status_code=500,
                 detail={
-                    "stdout": result.stdout[-4000:],
-                    "stderr": result.stderr[-4000:],
+                    "stdout": combined_output[-4000:],
+                    "stderr": "",
                 },
             )
 
         images = sorted(Path(output_dir).glob("*.png"))
         if not images:
             raise HTTPException(status_code=500, detail="No image was generated")
+
+        print(
+            f"[{datetime.now(timezone.utc).isoformat()}] /generate complete "
+            f"file={images[0].name}"
+        )
 
         return {
             "filename": images[0].name,
