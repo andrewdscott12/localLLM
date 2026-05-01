@@ -23,9 +23,9 @@ Current practical status from local testing:
 - `google/gemma-4-E4B-it`
 	- Fast for chat
 	- Tool-use compatibility has not been reliable enough for agent workflows
-- `mistralai/Codestral-22B-v0.1`
-	- Strong candidate for local coding and agentic use
-	- Still considered experimental until tool-use behavior is confirmed end-to-end
+- `deepseek-ai/deepseek-coder-33b-instruct`
+	- Not yet tested for agentic use
+	- Uses `hermes` tool call parser; tool use compatibility unconfirmed
 - `Qwen/Qwen3-Coder-30B-A3B-Instruct`
     - **Recommended model for Roo agentic use.** Demonstrated reliable file read/write and command execution.
     - Streaming format validated: clean `delta.tool_calls`, no thinking tokens, correct `finish_reason: tool_calls`.
