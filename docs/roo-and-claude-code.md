@@ -13,10 +13,6 @@ If your client runs on a different machine, map `llm.local` to your DGX LAN IP i
 
 Current practical status from local testing:
 
-- `meta-llama/Llama-3.1-8B-Instruct`
-	- Working parser path is `llama3_json`
-	- Claude Code remains unreliable even when plain chat works
-    - This model will dangerously hallucinate and try to wipe out your project. *You have been warned.*
 - `Qwen/Qwen2.5-Coder-7B-Instruct`
 	- Good plain chat and coding quality
 	- Roo and Claude can fall into tool-loop or malformed tool-response behavior
@@ -26,7 +22,7 @@ Current practical status from local testing:
 - `deepseek-ai/deepseek-coder-33b-instruct`
 	- Not yet tested for agentic use
 	- Uses `hermes` tool call parser; tool use compatibility unconfirmed
-    - Larger 128K context window
+    - Using a conservative 32K context profile for better stability
 - `Qwen/Qwen3-Coder-30B-A3B-Instruct`
     - **Recommended model for Roo agentic use.** Demonstrated reliable file read/write and command execution.
     - Streaming format validated: clean `delta.tool_calls`, no thinking tokens, correct `finish_reason: tool_calls`.
@@ -62,10 +58,10 @@ Launch claude with:
 claude --model <modelname>
 ```
 
-For this Llama deployment, use model name:
+For the current recommended Roo-compatible deployment, use model name:
 
 ```bash
-claude --model Llama-3.1-8B-Instruct
+claude --model Qwen3-Coder-30B-A3B-Instruct
 ```
 
 If your Claude setup supports `settings.json`, use values equivalent to:
@@ -78,7 +74,7 @@ If your Claude setup supports `settings.json`, use values equivalent to:
 		"CLAUDE_CODE_CONTEXT_WINDOW_SIZE": "32768",
 		"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
 	},
-	"model": "Llama-3.1-8B-Instruct"
+	"model": "Qwen3-Coder-30B-A3B-Instruct"
 }
 ```
 

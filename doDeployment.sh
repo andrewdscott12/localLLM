@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELLIST_FILE="$ROOT_DIR/modellist.txt"
+DEPLOYMENT_DIR="$ROOT_DIR/deploymentFiles"
 
 list_available_models() {
   awk '
@@ -50,10 +51,10 @@ find_manifest_for_model() {
       manifest="$file_path"
       match_count=$((match_count + 1))
     fi
-  done < <(find "$ROOT_DIR" -maxdepth 1 -type f -name "model-*.yaml" | sort)
+  done < <(find "$DEPLOYMENT_DIR" -maxdepth 1 -type f -name "model-*.yaml" | sort)
 
   if [[ "$match_count" -gt 1 ]]; then
-    echo "Multiple manifests match model $model. Keep only one model-*.yaml with this --model value." >&2
+    echo "Multiple manifests match model $model. Keep only one deploymentFiles/model-*.yaml with this --model value." >&2
     return 2
   fi
 
@@ -91,8 +92,8 @@ Models are read from:
 Examples:
   $(basename "$0") Qwen/Qwen2.5-Coder-7B-Instruct
   $(basename "$0") Qwen/Qwen2.5-14B-Instruct
-  $(basename "$0") --safe mistralai/Codestral-22B-v0.1
-  $(basename "$0") --check-only mistralai/Codestral-22B-v0.1
+  $(basename "$0") --safe deepseek-ai/deepseek-coder-33b-instruct
+  $(basename "$0") --check-only deepseek-ai/deepseek-coder-33b-instruct
   $(basename "$0") --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
   MAX_MODEL_LEN_OVERRIDE=32768 MAX_NUM_SEQS_OVERRIDE=1 $(basename "$0") Qwen/Qwen2.5-Coder-7B-Instruct
 EOF
@@ -157,6 +158,11 @@ if [[ ! -f "$MODELLIST_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -d "$DEPLOYMENT_DIR" ]]; then
+  echo "Deployment manifest directory not found: $DEPLOYMENT_DIR"
+  exit 1
+fi
+
 if ! is_model_listed "$MODEL"; then
   echo "Model is not listed in $MODELLIST_FILE: $MODEL"
   usage
@@ -187,11 +193,11 @@ fi
 
 for required_file in \
   "$MODELLIST_FILE" \
-  "$ROOT_DIR/llm-model-cache-pvc.yaml" \
-  "$ROOT_DIR/nvidia-time-slicing.yaml" \
-  "$ROOT_DIR/llm-ingress.yaml" \
-  "$ROOT_DIR/openwebui-deployment.yaml" \
-  "$ROOT_DIR/openwebui-ingress.yaml"; do
+  "$DEPLOYMENT_DIR/llm-model-cache-pvc.yaml" \
+  "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml" \
+  "$DEPLOYMENT_DIR/llm-ingress.yaml" \
+  "$DEPLOYMENT_DIR/openwebui-deployment.yaml" \
+  "$DEPLOYMENT_DIR/openwebui-ingress.yaml"; do
   if [[ ! -f "$required_file" ]]; then
     echo "Required file not found: $required_file"
     exit 1
@@ -306,7 +312,7 @@ require_secret_key llm hf-token HF_TOKEN
 require_secret_key llm llm-api-key API_KEY
 
 echo "Applying persistent model cache volume..."
-kubectl apply -f "$ROOT_DIR/llm-model-cache-pvc.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/llm-model-cache-pvc.yaml"
 
 echo "Removing currently deployed model resources..."
 kubectl delete deployment,service -n llm -l app.kubernetes.io/part-of=localllm-model --ignore-not-found=true
@@ -357,10 +363,10 @@ if [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PA
 fi
 
 echo "Applying shared ingress and OpenWebUI resources..."
-kubectl apply -f "$ROOT_DIR/nvidia-time-slicing.yaml"
-kubectl apply -f "$ROOT_DIR/llm-ingress.yaml"
-kubectl apply -f "$ROOT_DIR/openwebui-deployment.yaml"
-kubectl apply -f "$ROOT_DIR/openwebui-ingress.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/llm-ingress.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/openwebui-deployment.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/openwebui-ingress.yaml"
 
 echo "Waiting for model rollout..."
 kubectl rollout status deployment/"$MODEL_DEPLOYMENT" -n llm --timeout=20m
@@ -375,7 +381,9 @@ Deployment complete.
 Selected model: $MODEL
 Safe mode: $SAFE_MODE
 Check-only: $CHECK_ONLY
-Active model service: llm-active.llm.svc.cluster.local
+Active model service: llm-active.llm.svc.cluster.localminikube image load localllm/sd35-trt:latest
+kubectl apply -f deploymentFiles/stable-diffusion-3-5-tensorrt.yaml
+kubectl rollout status deployment/t2i-stable-diffusion-3-5-large-tensorrt -n llm --timeout=20m
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 
 If model pull is slow on first startup, check logs:

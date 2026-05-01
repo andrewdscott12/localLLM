@@ -56,10 +56,16 @@ spec:
         volumeMounts:
         - name: model-cache
           mountPath: /data
+        - name: dshm
+          mountPath: /dev/shm
       volumes:
       - name: model-cache
         persistentVolumeClaim:
           claimName: llm-model-cache
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
 ---
 apiVersion: v1
 kind: Service

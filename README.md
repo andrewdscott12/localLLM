@@ -1,7 +1,8 @@
 # LocalLLM Multi-Model Stack
 
-Local Kubernetes LLM stack for DGX Spark using:
+Local Kubernetes inference stack for DGX Spark using:
 - vLLM for OpenAI-compatible inference
+- TensorRT OSS demo runtime for Stable Diffusion 3.5 text-to-image
 - OpenWebUI for chat UI
 - Minikube + nginx ingress for routing
 - One active model at a time via `doDeployment.sh`
@@ -12,6 +13,7 @@ Usage of these models as chat endpoints seems to work well. Use of these with ag
 
 - [Quick Start](#quick-start)
 - [Model Switch Commands](#model-switch-commands)
+- [Image Generation](#image-generation)
 - [Client Endpoints](#client-endpoints)
 - [Documentation Index](#documentation-index)
 
@@ -52,10 +54,46 @@ When you add a new model path to `modellist.txt`, generate missing deployment ma
 
 ```bash
 ./doDeployment.sh Qwen/Qwen2.5-Coder-7B-Instruct
-./doDeployment.sh mistralai/Codestral-22B-v0.1
+./doDeployment.sh deepseek-ai/deepseek-coder-33b-instruct
 ./doDeployment.sh --safe Qwen/Qwen2.5-14B-Instruct
-./doDeployment.sh --check-only mistralai/Codestral-22B-v0.1
+./doDeployment.sh --check-only deepseek-ai/deepseek-coder-33b-instruct
 ./doDeployment.sh --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
+```
+
+[Back to top](#table-of-contents)
+
+## Image Generation
+
+Stable Diffusion 3.5 Large is deployed separately from the vLLM model-switching flow. It uses NVIDIA's TensorRT OSS diffusion demo inside a custom image.
+
+Build the image from the repo root:
+
+```bash
+docker build -f sd35-trt.dockerfile -t localllm/sd35-trt:latest .
+```
+
+Load it into Minikube and deploy it:
+
+```bash
+minikube image load localllm/sd35-trt:latest
+kubectl apply -f deploymentFiles/stable-diffusion-3-5-tensorrt.yaml
+kubectl rollout status deployment/t2i-stable-diffusion-3-5-large-tensorrt -n llm --timeout=20m
+```
+
+The first request will be slow because ONNX assets and TensorRT engines are downloaded and built under `/data/sd35` on the shared PVC.
+
+Example request:
+
+```bash
+curl -s http://image.local/generate \
+   -H "Content-Type: application/json" \
+   -d '{
+      "prompt": "a cinematic photo of a rainy neon alley",
+      "height": 1024,
+      "width": 1024,
+      "denoising_steps": 30,
+      "guidance_scale": 3.5
+   }'
 ```
 
 [Back to top](#table-of-contents)
@@ -64,8 +102,9 @@ When you add a new model path to `modellist.txt`, generate missing deployment ma
 
 - Internal cluster endpoint (OpenWebUI): `http://llm-active.llm.svc.cluster.local/v1`
 - LAN/client endpoint (Roo, external tools): `http://llm.local/v1`
+- LAN image endpoint: `http://image.local/generate`
 
-If using LAN clients, map `llm.local` to your DGX LAN IP in your host file.
+If using LAN clients, map `llm.local` and `image.local` to your DGX LAN IP in your host file.
 
 [Back to top](#table-of-contents)
 
@@ -74,6 +113,7 @@ If using LAN clients, map `llm.local` to your DGX LAN IP in your host file.
 - Setup and Minikube bootstrap: [docs/setup-minikube.md](docs/setup-minikube.md)
 - Secrets and auth (`HF_TOKEN`, `API_KEY`): [docs/secrets-and-auth.md](docs/secrets-and-auth.md)
 - Deploying, switching, and OpenWebUI setup: [docs/deploy-and-switch-models.md](docs/deploy-and-switch-models.md)
+- Stable Diffusion 3.5 TensorRT service assets: [sd35-trt.dockerfile](sd35-trt.dockerfile), [sd35-trt-server.py](sd35-trt-server.py), [deploymentFiles/stable-diffusion-3-5-tensorrt.yaml](deploymentFiles/stable-diffusion-3-5-tensorrt.yaml)
 - Model list source: [modellist.txt](modellist.txt)
 - Model manifest generator: [genModelDeployment.sh](genModelDeployment.sh)
 - Roo plugin and Claude Code configuration: [docs/roo-and-claude-code.md](docs/roo-and-claude-code.md)

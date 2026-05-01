@@ -18,6 +18,8 @@ RUN git clone --branch release/sd35 --single-branch https://github.com/NVIDIA/Te
 
 WORKDIR /opt/TensorRT/demo/Diffusion
 
+RUN printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
+
 RUN bash -lc "source setup.sh"
 
 RUN pip install fastapi "uvicorn[standard]" pillow
