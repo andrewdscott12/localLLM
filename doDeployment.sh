@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELLIST_FILE="$ROOT_DIR/modellist.txt"
 DEPLOYMENT_DIR="$ROOT_DIR/deploymentFiles"
 IMAGE_MODEL_ID="stabilityai/stable-diffusion-3.5-large-tensorrt"
+IMAGE_COMPANION_MODEL_ID="meta-llama/Llama-3.2-3B-Instruct"
 
 list_available_models() {
   awk '
@@ -65,14 +66,17 @@ find_manifest_for_model() {
   fi
 
   while IFS= read -r file_path; do
-    if grep -Fq -- "app.kubernetes.io/model-id: $model" "$file_path" || grep -Fq -- "app.kubernetes.io/model-id: \"$model\"" "$file_path"; then
+    if grep -Fq -- "app.kubernetes.io/model-id: $model" "$file_path" || \
+      grep -Fq -- "app.kubernetes.io/model-id: \"$model\"" "$file_path" || \
+      grep -Fq -- "app.kubernetes.io/model-id-full: $model" "$file_path" || \
+      grep -Fq -- "app.kubernetes.io/model-id-full: \"$model\"" "$file_path"; then
       manifest="$file_path"
       match_count=$((match_count + 1))
     fi
   done < <(find "$DEPLOYMENT_DIR" -maxdepth 1 -type f -name "*.yaml" | sort)
 
   if [[ "$match_count" -gt 1 ]]; then
-    echo "Multiple manifests match model $model by app.kubernetes.io/model-id label." >&2
+    echo "Multiple manifests match model $model by app.kubernetes.io/model-id or app.kubernetes.io/model-id-full." >&2
     return 2
   fi
 
@@ -118,6 +122,9 @@ Optional environment overrides:
   MAX_MODEL_LEN_OVERRIDE=32768
   GPU_MEMORY_UTILIZATION_OVERRIDE=0.82
   MAX_NUM_SEQS_OVERRIDE=1
+  COMPANION_GPU_MEMORY_UTILIZATION_OVERRIDE=0.35
+  COMPANION_MAX_MODEL_LEN_OVERRIDE=8192
+  COMPANION_MAX_NUM_SEQS_OVERRIDE=1
 
 Models are read from:
   $MODELLIST_FILE
@@ -143,6 +150,9 @@ EOF
 
 SAFE_MODE=false
 CHECK_ONLY=false
+COMPANION_MODEL=""
+COMPANION_MANIFEST=""
+COMPANION_DEPLOYMENT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -216,6 +226,33 @@ if ! MODEL_MANIFEST="$(find_manifest_for_model "$MODEL")"; then
   exit 1
 fi
 
+if [[ "$MODEL" == "$IMAGE_MODEL_ID" ]]; then
+  COMPANION_MODEL="$IMAGE_COMPANION_MODEL_ID"
+
+  if ! is_model_listed "$COMPANION_MODEL"; then
+    echo "Image model requires companion chat model to be listed: $COMPANION_MODEL"
+    echo "Add it to $MODELLIST_FILE and generate manifests with ./genModelDeployment.sh"
+    exit 1
+  fi
+
+  if ! COMPANION_MANIFEST="$(find_manifest_for_model "$COMPANION_MODEL")"; then
+    lookup_status=$?
+    if [[ "$lookup_status" -eq 2 ]]; then
+      exit 1
+    fi
+
+    echo "No deployment manifest found for companion chat model: $COMPANION_MODEL"
+    echo "Run ./genModelDeployment.sh to generate missing model manifests."
+    exit 1
+  fi
+
+  COMPANION_DEPLOYMENT="$(get_deployment_name_from_manifest "$COMPANION_MANIFEST")"
+  if [[ -z "$COMPANION_DEPLOYMENT" ]]; then
+    echo "Failed to determine deployment name from companion manifest: $COMPANION_MANIFEST"
+    exit 1
+  fi
+fi
+
 MODEL_DEPLOYMENT="$(get_deployment_name_from_manifest "$MODEL_MANIFEST")"
 if [[ -z "$MODEL_DEPLOYMENT" ]]; then
   echo "Failed to determine deployment name from manifest: $MODEL_MANIFEST"
@@ -269,6 +306,75 @@ require_namespace() {
     echo "Required namespace missing: $namespace"
     exit 1
   fi
+}
+
+apply_timeslicing_config() {
+  echo "Applying NVIDIA GPU time-slicing config map..."
+  kubectl apply -f "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml"
+
+  echo "Setting GPU Operator device plugin to use time-slicing config..."
+  kubectl patch clusterpolicy cluster-policy --type='merge' -p '{"spec":{"devicePlugin":{"config":{"name":"nvidia-device-plugin-config","default":"default"}}}}'
+
+  echo "Restarting NVIDIA device plugin daemonset..."
+  kubectl rollout restart daemonset/nvidia-device-plugin-daemonset -n gpu-operator >/dev/null 2>&1 || true
+  kubectl rollout status daemonset/nvidia-device-plugin-daemonset -n gpu-operator --timeout=5m >/dev/null 2>&1 || true
+}
+
+patch_vllm_deployment() {
+  local deployment_name="$1"
+  local gpu_mem="$2"
+  local max_model_len="$3"
+  local max_num_seqs="$4"
+
+  local patch_ops=()
+
+  if [[ -n "$gpu_mem" ]]; then
+    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/4\",\"value\":\"--gpu-memory-utilization=$gpu_mem\"}")
+  fi
+
+  if [[ -n "$max_model_len" ]]; then
+    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/5\",\"value\":\"--max-model-len=$max_model_len\"}")
+  fi
+
+  if [[ -n "$max_num_seqs" ]]; then
+    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/6\",\"value\":\"--max-num-seqs=$max_num_seqs\"}")
+  fi
+
+  if [[ "${#patch_ops[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "Applying vLLM overrides to deployment/$deployment_name..."
+  kubectl patch deployment "$deployment_name" -n llm --type='json' -p="[$(IFS=,; echo "${patch_ops[*]}")]"
+}
+
+disable_vllm_tool_calling() {
+  local deployment_name="$1"
+  local model_id="$2"
+  local served_name="${model_id##*/}"
+  local gpu_mem="${COMPANION_GPU_MEMORY_UTILIZATION_OVERRIDE:-0.35}"
+  local max_model_len="${COMPANION_MAX_MODEL_LEN_OVERRIDE:-8192}"
+  local max_num_seqs="${COMPANION_MAX_NUM_SEQS_OVERRIDE:-1}"
+  local kv_cache_dtype="${COMPANION_KV_CACHE_DTYPE_OVERRIDE:-fp8}"
+
+  echo "Disabling vLLM tool-calling flags for deployment/$deployment_name..."
+  kubectl patch deployment "$deployment_name" -n llm --type='json' -p="[
+    {\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args\",\"value\":[
+      \"--model=$model_id\",
+      \"--served-model-name=$served_name\",
+      \"--host=0.0.0.0\",
+      \"--port=8000\",
+      \"--gpu-memory-utilization=$gpu_mem\",
+      \"--max-model-len=$max_model_len\",
+      \"--max-num-seqs=$max_num_seqs\",
+      \"--enable-prefix-caching\",
+      \"--enable-chunked-prefill\",
+      "--enforce-eager",
+      \"--dtype\",
+      \"bfloat16\",
+      \"--kv-cache-dtype=$kv_cache_dtype\"
+    ]}
+  ]"
 }
 
 gpu_operator_installed() {
@@ -334,6 +440,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
 Check passed.
 
 Selected model: $MODEL
+Companion chat model: ${COMPANION_MODEL:-none}
 Safe mode: $SAFE_MODE
 Check-only: $CHECK_ONLY
 GPU Operator: $gpu_operator_status
@@ -364,6 +471,12 @@ kubectl delete service -n llm t2i-active --ignore-not-found=true
 echo "Applying selected model: $MODEL"
 kubectl apply -f "$MODEL_MANIFEST"
 
+if [[ -n "$COMPANION_MODEL" ]]; then
+  echo "Applying companion chat model: $COMPANION_MODEL"
+  kubectl apply -f "$COMPANION_MANIFEST"
+  disable_vllm_tool_calling "$COMPANION_DEPLOYMENT" "$COMPANION_MODEL"
+fi
+
 PATCH_GPU_MEMORY_UTILIZATION=""
 PATCH_MAX_MODEL_LEN=""
 PATCH_MAX_NUM_SEQS=""
@@ -387,34 +500,32 @@ if [[ -n "${MAX_NUM_SEQS_OVERRIDE:-}" ]]; then
 fi
 
 if [[ ( -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PATCH_MAX_NUM_SEQS" ) && "$MODEL_IS_VLLM" == "true" ]]; then
-  patch_ops=()
-
-  if [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/4\",\"value\":\"--gpu-memory-utilization=$PATCH_GPU_MEMORY_UTILIZATION\"}")
-  fi
-
-  if [[ -n "$PATCH_MAX_MODEL_LEN" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/5\",\"value\":\"--max-model-len=$PATCH_MAX_MODEL_LEN\"}")
-  fi
-
-  if [[ -n "$PATCH_MAX_NUM_SEQS" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/6\",\"value\":\"--max-num-seqs=$PATCH_MAX_NUM_SEQS\"}")
-  fi
-
-  echo "Applying deployment overrides..."
-  kubectl patch deployment "$MODEL_DEPLOYMENT" -n llm --type='json' -p="[$(IFS=,; echo "${patch_ops[*]}")]"
+  patch_vllm_deployment "$MODEL_DEPLOYMENT" "$PATCH_GPU_MEMORY_UTILIZATION" "$PATCH_MAX_MODEL_LEN" "$PATCH_MAX_NUM_SEQS"
 elif [[ -n "$PATCH_GPU_MEMORY_UTILIZATION" || -n "$PATCH_MAX_MODEL_LEN" || -n "$PATCH_MAX_NUM_SEQS" ]]; then
   echo "Deployment overrides were requested, but selected manifest is not vLLM. Skipping override patch."
 fi
 
+if [[ -n "$COMPANION_DEPLOYMENT" ]]; then
+  # Companion chat model should stay small when sharing one GB10 with image generation.
+  companion_gpu_mem="${COMPANION_GPU_MEMORY_UTILIZATION_OVERRIDE:-0.35}"
+  companion_max_model_len="${COMPANION_MAX_MODEL_LEN_OVERRIDE:-8192}"
+  companion_max_num_seqs="${COMPANION_MAX_NUM_SEQS_OVERRIDE:-1}"
+  patch_vllm_deployment "$COMPANION_DEPLOYMENT" "$companion_gpu_mem" "$companion_max_model_len" "$companion_max_num_seqs"
+fi
+
 echo "Applying shared ingress and OpenWebUI resources..."
-kubectl apply -f "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml"
+apply_timeslicing_config
 kubectl apply -f "$DEPLOYMENT_DIR/llm-ingress.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-deployment.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-ingress.yaml"
 
 echo "Waiting for model rollout..."
 kubectl rollout status deployment/"$MODEL_DEPLOYMENT" -n llm --timeout=20m
+
+if [[ -n "$COMPANION_DEPLOYMENT" ]]; then
+  echo "Waiting for companion chat rollout..."
+  kubectl rollout status deployment/"$COMPANION_DEPLOYMENT" -n llm --timeout=20m
+fi
 
 echo "Waiting for OpenWebUI rollout..."
 kubectl rollout status deployment/openwebui-deployment -n openwebui --timeout=10m
@@ -424,6 +535,7 @@ cat <<EOF
 Deployment complete.
 
 Selected model: $MODEL
+Companion chat model: ${COMPANION_MODEL:-none}
 Model kind: $MODEL_KIND
 Safe mode: $SAFE_MODE
 Check-only: $CHECK_ONLY

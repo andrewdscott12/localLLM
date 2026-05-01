@@ -4,4 +4,5 @@ Qwen/Qwen2.5-14B-Instruct
 deepseek-ai/deepseek-coder-33b-instruct
 google/gemma-4-E4B-it
 Qwen/Qwen3-Coder-30B-A3B-Instruct
+meta-llama/Llama-3.2-3B-Instruct
 stabilityai/stable-diffusion-3.5-large-tensorrt

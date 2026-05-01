@@ -88,6 +88,8 @@ minikube image load localllm/sd35-trt:latest
 ./doDeployment.sh stabilityai/stable-diffusion-3.5-large-tensorrt
 ```
 
+When deploying the SD3.5 image model, the script also deploys a companion chat model (`meta-llama/Llama-3.2-3B-Instruct`) so OpenWebUI has a conversational model available alongside image generation.
+
 The first request will be slow because ONNX assets and TensorRT engines are downloaded and built under `/data/sd35` on the shared PVC.
 
 Example request:

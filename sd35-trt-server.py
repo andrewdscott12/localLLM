@@ -42,7 +42,13 @@ class OpenAIImageRequest(BaseModel):
 app = FastAPI(title="SD3.5 TensorRT Service")
 
 
+def engine_dir_for_request(request: ImageRequest) -> str:
+    base_engine_dir = Path(os.getenv("SD35_ENGINE_DIR", "/data/sd35/engine"))
+    return str(base_engine_dir / f"{request.width}x{request.height}")
+
+
 def build_command(request: ImageRequest, output_dir: str) -> list[str]:
+    engine_dir = engine_dir_for_request(request)
     command = [
         "python3",
         "demo_txt2img_sd35.py",
@@ -54,7 +60,7 @@ def build_command(request: ImageRequest, output_dir: str) -> list[str]:
         f"--denoising-steps={request.denoising_steps}",
         f"--guidance-scale={request.guidance_scale}",
         f"--onnx-dir={os.getenv('SD35_ONNX_DIR', '/data/sd35/onnx')}",
-        f"--engine-dir={os.getenv('SD35_ENGINE_DIR', '/data/sd35/engine')}",
+        f"--engine-dir={engine_dir}",
         f"--output-dir={output_dir}",
         "--download-onnx-models",
     ]
@@ -76,8 +82,12 @@ def run_generation(request: ImageRequest) -> tuple[str, str]:
     with tempfile.TemporaryDirectory(prefix="sd35-out-") as output_dir:
         command = build_command(request, output_dir)
         logger.info(
-            "generation start size=%dx%d steps=%d guidance=%.1f",
-            request.width, request.height, request.denoising_steps, request.guidance_scale,
+            "generation start size=%dx%d steps=%d guidance=%.1f engine_dir=%s",
+            request.width,
+            request.height,
+            request.denoising_steps,
+            request.guidance_scale,
+            engine_dir_for_request(request),
         )
         process = subprocess.Popen(
             command,

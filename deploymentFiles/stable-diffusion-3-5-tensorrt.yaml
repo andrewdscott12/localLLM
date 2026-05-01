@@ -3,10 +3,12 @@ kind: Deployment
 metadata:
   name: t2i-stable-diffusion-3-5-large-tensorrt
   namespace: llm
+  annotations:
+    app.kubernetes.io/model-id-full: stabilityai/stable-diffusion-3.5-large-tensorrt
   labels:
     app.kubernetes.io/part-of: localllm-image
     app.kubernetes.io/name: t2i-stable-diffusion-3-5-large-tensorrt
-    app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
+    app.kubernetes.io/model-id: stabilityai-stable-diffusion-3.5-large-tensorrt
 spec:
   replicas: 1
   strategy:
@@ -16,10 +18,12 @@ spec:
       app: t2i-stable-diffusion-3-5-large-tensorrt
   template:
     metadata:
+      annotations:
+        app.kubernetes.io/model-id-full: stabilityai/stable-diffusion-3.5-large-tensorrt
       labels:
         app: t2i-stable-diffusion-3-5-large-tensorrt
         app.kubernetes.io/part-of: localllm-image
-        app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
+        app.kubernetes.io/model-id: stabilityai-stable-diffusion-3.5-large-tensorrt
     spec:
       runtimeClassName: nvidia
       containers:
@@ -74,9 +78,11 @@ kind: Service
 metadata:
   name: t2i-active
   namespace: llm
+  annotations:
+    app.kubernetes.io/model-id-full: stabilityai/stable-diffusion-3.5-large-tensorrt
   labels:
     app.kubernetes.io/part-of: localllm-image
-    app.kubernetes.io/model-id: stabilityai/stable-diffusion-3.5-large-tensorrt
+    app.kubernetes.io/model-id: stabilityai-stable-diffusion-3.5-large-tensorrt
 spec:
   selector:
     app: t2i-stable-diffusion-3-5-large-tensorrt
