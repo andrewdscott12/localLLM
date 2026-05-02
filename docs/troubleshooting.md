@@ -10,6 +10,8 @@ kubectl logs -n llm -l app.kubernetes.io/part-of=localllm-model -f
 kubectl logs -n llm -l app.kubernetes.io/part-of=localllm-image -f
 kubectl logs -n openwebui -l app=openwebui -f
 ```
+## Deployment succeeds but cannot reach openwebui or the model endpoint
+The Spark ships with a host based firewall. You will need to open ports to your ingress points.  ChatGTP can be very helpful here.  
 
 ## Check deployment prerequisites without changes
 
