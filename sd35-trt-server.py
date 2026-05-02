@@ -26,6 +26,7 @@ class ImageRequest(BaseModel):
     width: int = 1024
     denoising_steps: int = 30
     guidance_scale: float = 3.5
+    max_sequence_length: int = int(os.getenv("SD35_MAX_SEQUENCE_LENGTH", "256"))
 
 
 class OpenAIImageRequest(BaseModel):
@@ -37,6 +38,7 @@ class OpenAIImageRequest(BaseModel):
     negative_prompt: str | None = None
     denoising_steps: int = 30
     guidance_scale: float = 3.5
+    max_sequence_length: int = int(os.getenv("SD35_MAX_SEQUENCE_LENGTH", "256"))
 
 
 app = FastAPI(title="SD3.5 TensorRT Service")
@@ -70,6 +72,8 @@ def build_command(request: ImageRequest, output_dir: str) -> list[str]:
         command.append("--fp8")
     else:
         command.append("--bf16")
+
+    command.append(f"--max-sequence-length={request.max_sequence_length}")
 
     if request.negative_prompt:
         command.append(f"--negative-prompt={request.negative_prompt}")
@@ -186,6 +190,7 @@ def openai_generate(request: OpenAIImageRequest) -> dict[str, object]:
         height=height,
         denoising_steps=request.denoising_steps,
         guidance_scale=request.guidance_scale,
+        max_sequence_length=request.max_sequence_length,
     )
 
     filename, image_base64 = run_generation(image_request)

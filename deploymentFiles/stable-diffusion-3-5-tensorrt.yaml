@@ -52,6 +52,8 @@ spec:
           value: /data/sd35/onnx
         - name: SD35_ENGINE_DIR
           value: /data/sd35/engine
+        - name: SD35_MAX_SEQUENCE_LENGTH
+          value: "256"
         - name: SD35_HOST
           value: 0.0.0.0
         - name: SD35_PORT
