@@ -143,10 +143,11 @@ After saving, an image icon will appear in the OpenWebUI chat input bar. Click i
 
 - Internal cluster endpoint (OpenWebUI): `http://llm-active.llm.svc.cluster.local/v1`
 - LAN/client endpoint (Roo, external tools): `http://llm.local/v1`
+- LAN OpenWebUI endpoint: `http://openwebui.local:8080`
 - LAN image endpoint (native): `http://image.local/generate`
 - LAN image endpoint (OpenAI-compatible): `http://image.local/v1/images/generations`
 
-If using LAN clients, map `llm.local` and `image.local` to your DGX LAN IP in your host file.
+If using LAN clients, map `llm.local`, `openwebui.local`, and `image.local` to your DGX LAN IP in your host file.
 
 [Back to top](#table-of-contents)
 
