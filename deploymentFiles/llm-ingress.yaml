@@ -5,6 +5,12 @@ metadata:
   namespace: llm
   annotations:
     nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,127.0.0.1/32,192.168.49.0/24"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      keepalive_timeout 600s;
+      proxy_set_header Connection "";
 spec:
   ingressClassName: nginx
   rules:

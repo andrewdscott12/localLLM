@@ -44,6 +44,10 @@ The roo plugin does not behave well with local models and smallish context windo
 
 ## Claude Code terminal app
 
+**Claude is very picky. Models must have particular capabilities or it spits garbage**
+
+As of this writing, this author has tested with success is Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4.   
+
 If your Claude Code build supports OpenAI-compatible backends, set:
 
 ```bash
@@ -61,7 +65,7 @@ claude --model <modelname>
 For the current recommended Roo-compatible deployment, use model name:
 
 ```bash
-claude --model Qwen3-Coder-30B-A3B-Instruct
+claude --model QNemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
 ```
 
 If your Claude setup supports `settings.json`, use values equivalent to:
