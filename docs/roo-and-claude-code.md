@@ -82,7 +82,22 @@ If your Claude setup supports `settings.json`, use values equivalent to:
 }
 ```
 
-The Claude VSCode plugin is hard-wired to the Anthropic authentication infrastructure. This author doesn't have an athropic account, so I could not test it.  
+For using the VSCode plugin, you need to open the vscode settings.json (File->Preferences->Settings, then click the icon in the upper right for the JSON version) and add this block:
+
+```
+    "claude-code.environmentVariables": [
+        {
+        "name": "ANTHROPIC_BASE_URL",
+        "value": "http://llm.local:80/v1
+        },
+        {
+        "name": "ANTHROPIC_AUTH_TOKEN",
+        "value": "inkyai"
+        }
+    ],
+    "claude-code.disableLoginPrompt": true
+```
+Modify the BASE_URL and Token to match your deployment.  
 
 If your Claude Code build is Anthropic-only, use Roo/OpenWebUI for local models or place a gateway in front to translate requests.
 
