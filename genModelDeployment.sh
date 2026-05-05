@@ -3,11 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELLIST_FILE="$ROOT_DIR/modellist.txt"
+DEPLOYMENT_DIR="$ROOT_DIR/deploymentFiles"
+IMAGE_MODEL_ID="stabilityai/stable-diffusion-3.5-large-tensorrt"
 
 if [[ ! -f "$MODELLIST_FILE" ]]; then
   echo "Model list not found: $MODELLIST_FILE"
   exit 1
 fi
+
+mkdir -p "$DEPLOYMENT_DIR"
 
 slugify() {
   local input="$1"
@@ -30,7 +34,7 @@ find_existing_manifest_for_model() {
       echo "$file_path"
       return 0
     fi
-  done < <(find "$ROOT_DIR" -maxdepth 1 -type f -name "model-*.yaml" | sort)
+  done < <(find "$DEPLOYMENT_DIR" -maxdepth 1 -type f -name "model-*.yaml" | sort)
 
   return 1
 }
@@ -42,6 +46,12 @@ while IFS= read -r raw_line; do
   model="$(echo "$raw_line" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
 
   if [[ -z "$model" || "${model:0:1}" == "#" ]]; then
+    continue
+  fi
+
+  if [[ "$model" == "$IMAGE_MODEL_ID" ]]; then
+    echo "Skipping image runtime model id ($model); managed by deploymentFiles/stable-diffusion-3-5-tensorrt.yaml"
+    skipped=$((skipped + 1))
     continue
   fi
 
@@ -58,7 +68,7 @@ while IFS= read -r raw_line; do
     continue
   fi
 
-  manifest_file="$ROOT_DIR/model-$slug.yaml"
+  manifest_file="$DEPLOYMENT_DIR/model-$slug.yaml"
   deployment_name="llm-$slug"
   served_name="${model##*/}"
 
@@ -101,9 +111,6 @@ spec:
           - "--gpu-memory-utilization=0.78"
           - "--max-model-len=32768"
           - "--max-num-seqs=2"
-          - "--enable-auto-tool-choice"
-          - "--tool-call-parser"
-          - "openai"
           - "--enable-prefix-caching"
           - "--enable-chunked-prefill"
           - "--dtype"

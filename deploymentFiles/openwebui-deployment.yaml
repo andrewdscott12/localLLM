@@ -1,3 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+  namespace: openwebui
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +32,13 @@ spec:
         image: ghcr.io/open-webui/open-webui:main
         ports:
         - containerPort: 8080
+        volumeMounts:
+        - name: openwebui-data
+          mountPath: /app/backend/data
+      volumes:
+      - name: openwebui-data
+        persistentVolumeClaim:
+          claimName: openwebui-data
 ---
 apiVersion: v1
 kind: Service

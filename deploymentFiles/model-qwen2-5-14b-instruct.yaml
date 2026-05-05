@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-qwen2-5-14b-instruct
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+    app.kubernetes.io/name: llm-qwen2-5-14b-instruct
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llm-qwen2-5-14b-instruct
+  template:
+    metadata:
+      labels:
+        app: llm-qwen2-5-14b-instruct
+        app.kubernetes.io/part-of: localllm-model
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - "--model=Qwen/Qwen2.5-14B-Instruct"
+          - "--served-model-name=Qwen2.5-14B-Instruct"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=qwen3_xml"    # This is the best for Claude Code
+          - "--gpu-memory-utilization=0.8"
+          - "--kv-cache-dtype=fp8"            # Vital for the long system prompts
+        ports:
+          - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        env:
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-api-key
+                key: API_KEY
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: HF_TOKEN
+          - name: HF_HOME
+            value: "/data/hf"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/data/hf/hub"
+          - name: TRANSFORMERS_CACHE
+            value: "/data/hf/transformers"
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
+        volumeMounts:
+          - name: hf-cache
+            mountPath: /data/hf
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: llm-model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-active
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+spec:
+  selector:
+    app: llm-qwen2-5-14b-instruct
+  ports:
+    - port: 80
+      targetPort: 8000

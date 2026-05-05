@@ -13,7 +13,8 @@ Example:
 ```txt
 Qwen/Qwen2.5-Coder-7B-Instruct
 Qwen/Qwen2.5-14B-Instruct
-mistralai/Codestral-22B-v0.1
+deepseek-ai/deepseek-coder-33b-instruct
+stabilityai/stable-diffusion-3.5-large-tensorrt
 ```
 
 ## Generate Missing Model Manifests
@@ -26,7 +27,7 @@ Use `genModelDeployment.sh` to create manifests for new entries in `modellist.tx
 
 Behavior:
 - Reads `modellist.txt`
-- Creates `model-*.yaml` only for entries that do not already exist
+- Creates `deploymentFiles/model-*.yaml` only for entries that do not already exist
 - Skips entries already present in an existing manifest
 - Keeps existing manifests unchanged
 
@@ -38,7 +39,7 @@ It will:
 - validate required prerequisites and secrets
 - remove old model resources
 - apply the selected model manifest
-- apply shared manifests (`nvidia-time-slicing.yaml`, `llm-ingress.yaml`, OpenWebUI)
+- apply shared manifests from `deploymentFiles/` (`nvidia-time-slicing.yaml`, `llm-ingress.yaml`, OpenWebUI)
 - wait for rollout completion
 
 ## Supported model commands
@@ -46,7 +47,8 @@ It will:
 ```bash
 ./doDeployment.sh Qwen/Qwen2.5-Coder-7B-Instruct
 ./doDeployment.sh Qwen/Qwen2.5-14B-Instruct
-./doDeployment.sh mistralai/Codestral-22B-v0.1
+./doDeployment.sh deepseek-ai/deepseek-coder-33b-instruct
+./doDeployment.sh stabilityai/stable-diffusion-3.5-large-tensorrt
 ```
 
 ## Safe mode
@@ -62,9 +64,71 @@ Use lower memory/concurrency profile:
 Validate without changing resources:
 
 ```bash
-./doDeployment.sh --check-only mistralai/Codestral-22B-v0.1
+./doDeployment.sh --check-only deepseek-ai/deepseek-coder-33b-instruct
 ./doDeployment.sh --safe --check-only Qwen/Qwen2.5-Coder-7B-Instruct
 ```
+
+## Stable Diffusion 3.5 Large TensorRT Deployment
+
+`deploymentFiles/stable-diffusion-3-5-tensorrt.yaml` is mapped to model id `stabilityai/stable-diffusion-3.5-large-tensorrt` and can be deployed through `doDeployment.sh` like other entries in `modellist.txt`.
+
+This deployment path is intentionally different from vLLM model manifests:
+
+- Uses custom image `localllm/sd35-trt:latest` built from `sd35-trt.dockerfile`
+- Runs TensorRT OSS diffusion scripts via `sd35-trt-server.py`
+- Exposes image generation APIs, not chat-completion APIs
+- Performs first-run ONNX download and TensorRT engine build on the shared PVC
+- Ignores vLLM patch overrides in `doDeployment.sh` (`gpu-memory-utilization`, `max-model-len`, `max-num-seqs`)
+
+Build the service image from the repo root:
+
+```bash
+docker build -f sd35-trt.dockerfile -t localllm/sd35-trt:latest .
+```
+
+Load it into Minikube and deploy the service:
+
+```bash
+minikube image load localllm/sd35-trt:latest
+./doDeployment.sh stabilityai/stable-diffusion-3.5-large-tensorrt
+```
+
+Behavior:
+- Uses secret `hf-token` for `HF_TOKEN`
+- Stores downloaded ONNX assets and TensorRT engines on the shared `llm-model-cache` PVC under `/data/sd35`
+- Exposes HTTP generation endpoints at `http://image.local/generate` and `http://image.local/v1/images/generations`
+- First request is expected to be slow while engines are downloaded and built
+
+Example request:
+
+```bash
+curl -s http://image.local/generate \
+   -H "Content-Type: application/json" \
+   -d '{
+      "prompt": "a cinematic photo of a rainy neon alley",
+      "height": 1024,
+      "width": 1024,
+      "denoising_steps": 30,
+      "guidance_scale": 3.5
+   }'
+```
+
+OpenAI-compatible image request:
+
+```bash
+curl -s http://image.local/v1/images/generations \
+   -H "Content-Type: application/json" \
+   -d '{
+      "model": "sd35-large-tensorrt",
+      "prompt": "a cinematic photo of a rainy neon alley",
+      "size": "1024x1024",
+      "response_format": "b64_json",
+      "denoising_steps": 30,
+      "guidance_scale": 3.5
+   }'
+```
+
+You can switch precision in `deploymentFiles/stable-diffusion-3-5-tensorrt.yaml` by changing `SD35_PRECISION` from `bf16` to `fp8` if your GPU and TensorRT stack support it.
 
 ## Configure OpenWebUI
 
@@ -76,3 +140,10 @@ Validate without changing resources:
 4. Verify and save
 
 Important: use the internal cluster URL above in OpenWebUI.
+
+For image generation in OpenWebUI using this model runtime:
+
+1. Add a second OpenAI-compatible connection
+2. Set Base URL to `http://image.local/v1`
+3. Use any non-empty API key value if required by the UI
+4. Select image model id `sd35-large-tensorrt`

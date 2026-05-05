@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-google-gemma-4-e4b-it
+  namespace: llm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llm-google-gemma-4-e4b-it
+  template:
+    metadata:
+      labels:
+        app: llm-google-gemma-4-e4b-it
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - "--model=google/gemma-4-E4B-it"
+          - "--served-model-name=gemma-4-e4b-it"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - "--gpu-memory-utilization=0.80"
+          - "--max-model-len=32768"
+          # PROTOCOL TRANSLATION LAYER
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=openai"
+          - "--chat-template=/app/templates/tool_use.jinja" 
+          # PERFORMANCE & STABILITY
+          - "--kv-cache-dtype=fp8"
+          - "--disable-custom-all-reduce"
+        ports:
+          - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        env:
+          - name: NCCL_P2P_LEVEL
+            value: "SYS"
+          - name: VLLM_ATTENTION_BACKEND
+            value: "FLASH_ATTN"
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-api-key
+                key: API_KEY
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: HF_TOKEN
+          - name: HF_HOME
+            value: "/data/hf"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/data/hf/hub"
+          - name: TRANSFORMERS_CACHE
+            value: "/data/hf/transformers"
+        volumeMounts:
+          - name: hf-cache
+            mountPath: /data/hf
+          - name: template-volume
+            mountPath: /app/templates
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: llm-model-cache
+        - name: template-volume
+          configMap:
+            name: gemma-template
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-active
+  namespace: llm
+spec:
+  selector:
+    app: llm-google-gemma-4-e4b-it
+  ports:
+    - port: 80
+      targetPort: 8000
