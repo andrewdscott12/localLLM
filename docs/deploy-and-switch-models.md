@@ -147,3 +147,28 @@ For image generation in OpenWebUI using this model runtime:
 2. Set Base URL to `http://image.local/v1`
 3. Use any non-empty API key value if required by the UI
 4. Select image model id `sd35-large-tensorrt`
+
+## Configure Claude Code (Anthropic-compatible via LiteLLM)
+
+`doDeployment.sh` now deploys a LiteLLM proxy service that translates Anthropic-style requests to your active OpenAI-compatible vLLM model.
+
+Use these values in Claude Code:
+
+- `ANTHROPIC_BASE_URL`: `http://llm.local/anthropic`
+- `ANTHROPIC_AUTH_TOKEN`: value of `API_KEY` from secret `llm-api-key`
+
+Example VS Code settings snippet:
+
+```json
+"claude-code.environmentVariables": [
+   {
+      "name": "ANTHROPIC_BASE_URL",
+      "value": "http://llm.local/anthropic"
+   },
+   {
+      "name": "ANTHROPIC_AUTH_TOKEN",
+      "value": "<your-api-key>"
+   }
+],
+"claude-code.disableLoginPrompt": true
+```

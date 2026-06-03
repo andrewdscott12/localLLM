@@ -143,6 +143,7 @@ After saving, an image icon will appear in the OpenWebUI chat input bar. Click i
 
 - Internal cluster endpoint (OpenWebUI): `http://llm-active.llm.svc.cluster.local/v1`
 - LAN/client endpoint (Roo, external tools): `http://llm.local/v1`
+- Anthropic-compatible endpoint (Claude via LiteLLM): `http://llm.local/anthropic`
 - LAN OpenWebUI endpoint: `http://openwebui.local:8080`
 - LAN image endpoint (native): `http://image.local/generate`
 - LAN image endpoint (OpenAI-compatible): `http://image.local/v1/images/generations`

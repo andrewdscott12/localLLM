@@ -274,6 +274,8 @@ for required_file in \
   "$DEPLOYMENT_DIR/llm-model-cache-pvc.yaml" \
   "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml" \
   "$DEPLOYMENT_DIR/llm-ingress.yaml" \
+  "$DEPLOYMENT_DIR/litellm-proxy.yaml" \
+  "$DEPLOYMENT_DIR/litellm-anthropic-ingress.yaml" \
   "$DEPLOYMENT_DIR/openwebui-deployment.yaml" \
   "$DEPLOYMENT_DIR/openwebui-ingress.yaml"; do
   if [[ ! -f "$required_file" ]]; then
@@ -318,6 +320,29 @@ apply_timeslicing_config() {
   echo "Restarting NVIDIA device plugin daemonset..."
   kubectl rollout restart daemonset/nvidia-device-plugin-daemonset -n gpu-operator >/dev/null 2>&1 || true
   kubectl rollout status daemonset/nvidia-device-plugin-daemonset -n gpu-operator --timeout=5m >/dev/null 2>&1 || true
+}
+
+restart_ingress_controller() {
+  # Prefer the standard ingress-nginx deployment names and restart whichever exists.
+  local restarted="false"
+
+  if kubectl get deployment ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1; then
+    echo "Restarting ingress controller: deployment/ingress-nginx-controller (namespace ingress-nginx)..."
+    kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx
+    kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
+    restarted="true"
+  fi
+
+  if kubectl get deployment nginx-ingress-controller -n ingress-nginx >/dev/null 2>&1; then
+    echo "Restarting ingress controller: deployment/nginx-ingress-controller (namespace ingress-nginx)..."
+    kubectl rollout restart deployment/nginx-ingress-controller -n ingress-nginx
+    kubectl rollout status deployment/nginx-ingress-controller -n ingress-nginx --timeout=5m
+    restarted="true"
+  fi
+
+  if [[ "$restarted" != "true" ]]; then
+    echo "No ingress controller deployment found in namespace ingress-nginx. Skipping ingress controller restart."
+  fi
 }
 
 patch_vllm_deployment() {
@@ -516,8 +541,11 @@ fi
 echo "Applying shared ingress and OpenWebUI resources..."
 apply_timeslicing_config
 kubectl apply -f "$DEPLOYMENT_DIR/llm-ingress.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/litellm-proxy.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/litellm-anthropic-ingress.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-deployment.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-ingress.yaml"
+restart_ingress_controller
 
 echo "Waiting for model rollout..."
 kubectl rollout status deployment/"$MODEL_DEPLOYMENT" -n llm --timeout=20m
@@ -526,6 +554,9 @@ if [[ -n "$COMPANION_DEPLOYMENT" ]]; then
   echo "Waiting for companion chat rollout..."
   kubectl rollout status deployment/"$COMPANION_DEPLOYMENT" -n llm --timeout=20m
 fi
+
+echo "Waiting for LiteLLM proxy rollout..."
+kubectl rollout status deployment/litellm-proxy -n llm --timeout=10m
 
 echo "Waiting for OpenWebUI rollout..."
 kubectl rollout status deployment/openwebui-deployment -n openwebui --timeout=10m
@@ -542,6 +573,7 @@ Check-only: $CHECK_ONLY
 Active model service: llm-active.llm.svc.cluster.local
 Image generation service: t2i-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
+Anthropic-compatible proxy URL: http://llm.local/anthropic
 Image endpoint URL: http://image.local/v1/images/generations
 
 If model pull is slow on first startup, check logs:

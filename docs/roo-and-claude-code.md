@@ -7,6 +7,11 @@ All active models are exposed via one OpenAI-compatible endpoint:
 - Base URL: `http://llm.local/v1`
 - API key: `API_KEY` from secret `llm-api-key`
 
+Anthropic-compatible clients (Claude Code) should use the LiteLLM translation path:
+
+- Base URL: `http://llm.local/anthropic`
+- Auth token: `API_KEY` from secret `llm-api-key`
+
 If your client runs on a different machine, map `llm.local` to your DGX LAN IP in hosts.
 
 ## Tested model limitations
@@ -51,8 +56,8 @@ As of this writing, this author has tested with success is Nemotron-3-Nano-Omni-
 If your Claude Code build supports OpenAI-compatible backends, set:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://llm.local  # Replace with your local server URL
-export ANTHROPIC_AUTH_TOKEN=<token>         # Value doesn't matter for most local servers
+export ANTHROPIC_BASE_URL=http://llm.local/anthropic
+export ANTHROPIC_AUTH_TOKEN=<your-api-key>
 export CLAUDE_CODE_CONTEXT_WINDOW_SIZE=32000
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 ```
@@ -73,7 +78,7 @@ If your Claude setup supports `settings.json`, use values equivalent to:
 ```json
 {
 	"env": {
-		"ANTHROPIC_BASE_URL": "http://llm.local",
+        "ANTHROPIC_BASE_URL": "http://llm.local/anthropic",
 		"ANTHROPIC_AUTH_TOKEN": "<your-api-key>",
 		"CLAUDE_CODE_CONTEXT_WINDOW_SIZE": "32768",
 		"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
@@ -84,18 +89,18 @@ If your Claude setup supports `settings.json`, use values equivalent to:
 
 For using the VSCode plugin, you need to open the vscode settings.json (File->Preferences->Settings, then click the icon in the upper right for the JSON version) and add this block:
 
-```
-    "claude-code.environmentVariables": [
-        {
+```json
+"claude-code.environmentVariables": [
+    {
         "name": "ANTHROPIC_BASE_URL",
-        "value": "http://llm.local:80/v1
-        },
-        {
+        "value": "http://llm.local/anthropic"
+    },
+    {
         "name": "ANTHROPIC_AUTH_TOKEN",
-        "value": "inkyai"
-        }
-    ],
-    "claude-code.disableLoginPrompt": true
+        "value": "<your-api-key>"
+    }
+],
+"claude-code.disableLoginPrompt": true
 ```
 Modify the BASE_URL and Token to match your deployment.  
 
