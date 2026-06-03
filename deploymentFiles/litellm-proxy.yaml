@@ -95,13 +95,13 @@ spec:
             subPath: config.yaml
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/liveliness
             port: 4000
           initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/liveliness
             port: 4000
           initialDelaySeconds: 15
           periodSeconds: 20
