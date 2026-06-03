@@ -36,6 +36,37 @@ Ensure required secrets exist in namespace `llm`:
 curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>"
 ```
 
+## Claude shows literal tool calls (`call:Bash{...}`) but does not execute actions
+
+Symptom example:
+
+```text
+I will read the doDeployment.sh file...
+call:Bash{command:find . -name "doDeployment.sh", ...}
+```
+
+This indicates model/tool-schema mismatch, not network/auth failure. The request reached the model, but the model returned tool intent as plain text instead of structured tool calls Claude Code can execute.
+
+Use this recovery sequence:
+
+1. Confirm the active served model id:
+
+```bash
+curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>" | jq -r '.data[].id'
+```
+
+2. In VS Code `settings.json`, set `claude-code.model` to one exact id from that output (case-sensitive).
+
+3. Prefer the currently best Claude-compatible local profile in this repo:
+
+```bash
+./doDeployment.sh Qwen/Qwen2.5-14B-Instruct
+```
+
+4. Reload VS Code window and start a new Claude session.
+
+If model ids do not match, you will usually see `404 The model <name> does not exist` in vLLM logs.
+
 ## Image generation request times out on first call
 
 The first SD3.5 request can take a long time while ONNX artifacts are downloaded and TensorRT engines are built.
