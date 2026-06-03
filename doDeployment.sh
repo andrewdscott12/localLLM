@@ -437,6 +437,82 @@ ensure_gpu_operator() {
   kubectl rollout status deployment/gpu-operator -n gpu-operator --timeout=10m
 }
 
+ensure_docker_dns() {
+  # Verify Docker containers can resolve external DNS. If not, add Google DNS
+  # to /etc/docker/daemon.json and restart Docker + Minikube.
+  echo "Checking Docker container DNS resolution..."
+  if docker run --rm alpine nslookup ghcr.io >/dev/null 2>&1; then
+    echo "Docker DNS OK."
+    return 0
+  fi
+
+  echo "Docker containers cannot resolve external DNS. Fixing /etc/docker/daemon.json..."
+
+  local daemon_json="/etc/docker/daemon.json"
+  local tmp
+  tmp="$(mktemp)"
+
+  if [[ -f "$daemon_json" ]]; then
+    # Merge dns key into existing JSON using python3 (always available on Ubuntu)
+    sudo python3 - "$daemon_json" "$tmp" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    cfg = json.load(f)
+cfg["dns"] = ["8.8.8.8", "8.8.4.4"]
+with open(sys.argv[2], "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+  else
+    echo '{"dns":["8.8.8.8","8.8.4.4"]}' | sudo tee "$tmp" >/dev/null
+  fi
+
+  sudo cp "$tmp" "$daemon_json"
+  rm -f "$tmp"
+
+  echo "Restarting Docker..."
+  sudo systemctl restart docker
+
+  echo "Restarting Minikube to pick up new Docker config..."
+  minikube stop || true
+  minikube start --driver=docker --cpus=no-limit --memory=no-limit --gpus=all
+
+  if ! docker run --rm alpine nslookup ghcr.io >/dev/null 2>&1; then
+    echo "ERROR: Docker DNS still not resolving after fix. Check /etc/docker/daemon.json and network settings."
+    exit 1
+  fi
+  echo "Docker DNS resolution confirmed."
+}
+
+start_port_forwards() {
+  # Kill any existing port-forwards for these ports so we get a clean slate.
+  pkill -f 'kubectl.*port-forward.*svc/llm-active' 2>/dev/null || true
+  pkill -f 'kubectl.*port-forward.*svc/openwebui-service' 2>/dev/null || true
+  sleep 1
+
+  echo "Starting port-forward: llm-active -> host:8081 (LLM/Anthropic API)..."
+  nohup kubectl port-forward svc/llm-active 8081:80 -n llm \
+    >"$ROOT_DIR/logs/port-forward-llm.log" 2>&1 &
+
+  echo "Starting port-forward: openwebui-service -> host:8080 (OpenWebUI)..."
+  nohup kubectl -n openwebui port-forward --address 0.0.0.0 svc/openwebui-service 8080:8080 \
+    >"$ROOT_DIR/logs/port-forward-openwebui.log" 2>&1 &
+
+  # Brief pause to let port-forwards bind before returning
+  sleep 3
+
+  # Report status
+  if pgrep -f 'kubectl.*port-forward.*svc/llm-active' >/dev/null 2>&1; then
+    echo "  llm-active    -> http://localhost:8081/v1  [OK]"
+  else
+    echo "  llm-active    port-forward failed. Check logs/port-forward-llm.log"
+  fi
+  if pgrep -f 'kubectl.*port-forward.*svc/openwebui-service' >/dev/null 2>&1; then
+    echo "  openwebui     -> http://openwebui.local:8080  [OK]"
+  else
+    echo "  openwebui     port-forward failed. Check logs/port-forward-openwebui.log"
+  fi
+}
+
 echo "Checking cluster connectivity..."
 if ! kubectl cluster-info >/dev/null 2>&1; then
   echo "Cannot reach Kubernetes cluster with current kubectl context"
@@ -473,6 +549,10 @@ Model manifest: $MODEL_MANIFEST
 EOF
   exit 0
 fi
+
+ensure_docker_dns
+
+mkdir -p "$ROOT_DIR/logs"
 
 echo "Ensuring namespaces exist..."
 kubectl create namespace llm --dry-run=client -o yaml | kubectl apply -f -
@@ -561,6 +641,9 @@ kubectl rollout status deployment/litellm-proxy -n llm --timeout=10m
 echo "Waiting for OpenWebUI rollout..."
 kubectl rollout status deployment/openwebui-deployment -n openwebui --timeout=10m
 
+echo "Starting host port-forwards..."
+start_port_forwards
+
 cat <<EOF
 
 Deployment complete.
@@ -575,6 +658,10 @@ Image generation service: t2i-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
 Anthropic-compatible proxy URL: http://llm.local/anthropic
 Image endpoint URL: http://image.local/v1/images/generations
+Host port-forwards:
+  LLM/Anthropic API -> http://localhost:8081/v1
+  OpenWebUI        -> http://openwebui.local:8080
+Port-forward logs: $ROOT_DIR/logs/
 
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f
