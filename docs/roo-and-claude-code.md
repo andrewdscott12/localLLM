@@ -12,6 +12,18 @@ Anthropic-compatible clients (Claude Code) should use the LiteLLM translation pa
 - Base URL: `http://llm.local/anthropic`
 - Auth token: `API_KEY` from secret `llm-api-key`
 
+Critical model alignment rule:
+
+- LiteLLM can present multiple model aliases, but `llm-active` still forwards to one live vLLM model at a time.
+- The model Claude requests must exist on the currently active vLLM backend.
+- If not, requests fail with `404 The model <name> does not exist`.
+
+Always check active model ids before choosing a Claude model:
+
+```bash
+curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>" | jq -r '.data[].id'
+```
+
 If your client runs on a different machine, map `llm.local` to your DGX LAN IP in hosts.
 
 ## Tested model limitations
@@ -67,11 +79,7 @@ Launch claude with:
 claude --model <modelname>
 ```
 
-For the current recommended Roo-compatible deployment, use model name:
-
-```bash
-claude --model QNemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
-```
+Use an exact id returned from `/v1/models` (case-sensitive).
 
 If your Claude setup supports `settings.json`, use values equivalent to:
 
@@ -100,9 +108,12 @@ For using the VSCode plugin, you need to open the vscode settings.json (File->Pr
         "value": "<your-api-key>"
     }
 ],
+"claude-code.model": "<exact-id-from-/v1/models>",
 "claude-code.disableLoginPrompt": true
 ```
 Modify the BASE_URL and Token to match your deployment.  
+
+If Claude continues to send an older model name, reload the VS Code window and start a new chat/session.
 
 If your Claude Code build is Anthropic-only, use Roo/OpenWebUI for local models or place a gateway in front to translate requests.
 
