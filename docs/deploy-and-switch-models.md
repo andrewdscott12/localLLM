@@ -166,6 +166,14 @@ curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>" | j
 
 Use one of the returned ids exactly as `claude-code.model`.
 
+Preferred Claude deployment in this repo:
+
+```bash
+./doDeployment.sh google/gemma-4-31B-it
+```
+
+When this model is active, set `claude-code.model` to `gemma-4-31B-it`.
+
 Use these values in Claude Code:
 
 - `ANTHROPIC_BASE_URL`: `http://llm.local/anthropic`

@@ -36,6 +36,10 @@ Current practical status from local testing:
 - `google/gemma-4-E4B-it`
 	- Fast for chat
 	- Tool-use compatibility has not been reliable enough for agent workflows
+- `google/gemma-4-31B-it`
+    - **Preferred model for Claude Code in this repo**
+    - Deployment now works with Claude tool-use flow when `claude-code.model` matches the active served id
+    - Use served model id `gemma-4-31B-it` (case-sensitive)
 - `deepseek-ai/deepseek-coder-33b-instruct`
 	- Not yet tested for agentic use
 	- Uses `hermes` tool call parser; tool use compatibility unconfirmed
@@ -47,8 +51,8 @@ Current practical status from local testing:
 
 Recommendation:
 
-- Prefer Roo over Claude Code for local agentic workflows
-- Treat Claude Code as experimental with locally hosted models in this stack
+- Prefer `google/gemma-4-31B-it` for Claude Code
+- Prefer Roo with `Qwen/Qwen3-Coder-30B-A3B-Instruct` for local agentic workflows
 
 ## Roo plugin
 The roo plugin does not behave well with local models and smallish context windows. YMMV here.  
@@ -63,7 +67,7 @@ The roo plugin does not behave well with local models and smallish context windo
 
 **Claude is very picky. Models must have particular capabilities or it spits garbage**
 
-As of this writing, this author has tested with success is Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4.   
+As of this writing, the preferred deployment for Claude Code is `google/gemma-4-31B-it` (served id `gemma-4-31B-it`).
 
 If your Claude Code build supports OpenAI-compatible backends, set:
 
@@ -91,7 +95,7 @@ If your Claude setup supports `settings.json`, use values equivalent to:
 		"CLAUDE_CODE_CONTEXT_WINDOW_SIZE": "32768",
 		"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
 	},
-	"model": "Qwen3-Coder-30B-A3B-Instruct"
+    "model": "gemma-4-31B-it"
 }
 ```
 

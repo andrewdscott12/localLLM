@@ -60,7 +60,7 @@ curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>" | j
 3. Prefer the currently best Claude-compatible local profile in this repo:
 
 ```bash
-./doDeployment.sh Qwen/Qwen2.5-14B-Instruct
+./doDeployment.sh google/gemma-4-31B-it
 ```
 
 4. Reload VS Code window and start a new Claude session.
