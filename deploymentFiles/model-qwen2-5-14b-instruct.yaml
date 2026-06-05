@@ -27,10 +27,20 @@ spec:
           - "--served-model-name=Qwen2.5-14B-Instruct"
           - "--host=0.0.0.0"
           - "--port=8000"
+          # 1. FIXED: Explicitly use the high-performance XML tool parser for Qwen models
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=qwen3_xml"    # This is the best for Claude Code
-          - "--gpu-memory-utilization=0.8"
-          - "--kv-cache-dtype=fp8"            # Vital for the long system prompts
+          - "--tool-call-parser"
+          - "qwen3_xml"
+          # 2. TUNED: Re-allocate stable memory for your Spark DGX Unified Memory Pool
+          - "--gpu-memory-utilization=0.80"
+          - "--load-format=safetensors"
+          - "--max-model-len=131072"
+          - "--max-num-seqs=2"
+          - "--max-num-batched-tokens=4096"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
+          - "--kv-cache-dtype=fp8"
+          - "--dtype=bfloat16"
         ports:
           - containerPort: 8000
         resources:

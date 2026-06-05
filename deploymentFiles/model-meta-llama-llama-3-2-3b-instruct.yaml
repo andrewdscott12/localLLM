@@ -27,15 +27,18 @@ spec:
           - "--served-model-name=Llama-3.2-3B-Instruct"
           - "--host=0.0.0.0"
           - "--port=8000"
-          - "--gpu-memory-utilization=0.1"
-          - "--max-model-len=8192"
+          # 1. ADDED: Enable tool calling for Claude Code compatibility
+          - "--enable-auto-tool-choice"
+          # 2. OPTIMIZED: Push memory up to allow deep context and breathing room for tools
+          - "--gpu-memory-utilization=0.80"
+          - "--load-format=safetensors"
+          - "--max-model-len=131072"
           - "--max-num-seqs=2"
+          - "--max-num-batched-tokens=4096"
           - "--enable-prefix-caching"
           - "--enable-chunked-prefill"
-          - "--enforce-eager"
-          - "--dtype"
-          - "bfloat16"
           - "--kv-cache-dtype=fp8"
+          - "--dtype=bfloat16"
         ports:
           - containerPort: 8000
         resources:

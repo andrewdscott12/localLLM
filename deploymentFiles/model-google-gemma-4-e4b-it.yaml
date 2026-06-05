@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: llm-google-gemma-4-e4b-it
   namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+    app.kubernetes.io/name: llm-google-gemma-4-e4b-it
 spec:
   replicas: 1
   strategy:
@@ -14,6 +17,7 @@ spec:
     metadata:
       labels:
         app: llm-google-gemma-4-e4b-it
+        app.kubernetes.io/part-of: localllm-model
     spec:
       containers:
       - name: vllm
@@ -23,15 +27,20 @@ spec:
           - "--served-model-name=gemma-4-e4b-it"
           - "--host=0.0.0.0"
           - "--port=8000"
-          - "--gpu-memory-utilization=0.80"
-          - "--max-model-len=32768"
-          # PROTOCOL TRANSLATION LAYER
+          # 1. FIXED: Tell vLLM to use the specific Gemma 4 tool parser
           - "--enable-auto-tool-choice"
-          - "--tool-call-parser=openai"
-          - "--chat-template=/app/templates/tool_use.jinja" 
-          # PERFORMANCE & STABILITY
+          - "--tool-call-parser"
+          - "gemma4"
+          # 2. OPTIMIZED: Push memory up to allow deep context and breathing room for tools
+          - "--gpu-memory-utilization=0.80"
+          - "--load-format=safetensors"
+          - "--max-model-len=131072"
+          - "--max-num-seqs=2"
+          - "--max-num-batched-tokens=4096"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
           - "--kv-cache-dtype=fp8"
-          - "--disable-custom-all-reduce"
+          - "--dtype=bfloat16"
         ports:
           - containerPort: 8000
         resources:
@@ -58,24 +67,25 @@ spec:
             value: "/data/hf/hub"
           - name: TRANSFORMERS_CACHE
             value: "/data/hf/transformers"
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
         volumeMounts:
           - name: hf-cache
             mountPath: /data/hf
-          - name: template-volume
-            mountPath: /app/templates
       volumes:
         - name: hf-cache
           persistentVolumeClaim:
             claimName: llm-model-cache
-        - name: template-volume
-          configMap:
-            name: gemma-template
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: llm-active
   namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
 spec:
   selector:
     app: llm-google-gemma-4-e4b-it
