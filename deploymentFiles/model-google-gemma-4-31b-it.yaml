@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-google-gemma-4-31b-it
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+    app.kubernetes.io/name: llm-google-gemma-4-31b-it
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llm-google-gemma-4-31b-it
+  template:
+    metadata:
+      labels:
+        app: llm-google-gemma-4-31b-it
+        app.kubernetes.io/part-of: localllm-model
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+          - "--model=google/gemma-4-31B-it"
+          - "--served-model-name=gemma-4-31B-it"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          # 1. FIXED: Tell vLLM to use the specific Gemma 4 tool parser
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser"
+          - "gemma4"
+          # 2. OPTIMIZED: Push memory up to allow deep context and breathing room for tools
+          - "--gpu-memory-utilization"
+          - "0.80"
+          - "--kv-cache-dtype"
+          - "fp8"
+          - "--load-format"
+          - "safetensors"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
+          # 3. FIXED: Bring max context window down to a sane, stable limit for your workload
+          - "--max-model-len"
+          - "262144"
+          - "--max-num-seqs"
+          - "16"
+          - "--max-num-batched-tokens"
+          - "8112"
+          - "--load-format"
+          - "safetensors"
+        ports:
+          - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        env:
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-api-key
+                key: API_KEY
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: HF_TOKEN
+          - name: USE_FASTSAFETENSOR
+            value: "true"
+          - name: HF_HOME
+            value: "/data/hf"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/data/hf/hub"
+          - name: TRANSFORMERS_CACHE
+            value: "/data/hf/transformers"
+          - name: OMP_NUM_THREADS
+            value: "8"
+          - name: OMP_SCHEDULE
+            value: "dynamic"
+        volumeMounts:
+          - name: hf-cache
+            mountPath: /data/hf
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: llm-model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-active
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: localllm-model
+spec:
+  selector:
+    app: llm-google-gemma-4-31b-it
+  ports:
+    - port: 80
+      targetPort: 8000

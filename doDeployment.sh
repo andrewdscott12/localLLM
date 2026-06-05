@@ -351,26 +351,68 @@ patch_vllm_deployment() {
   local max_model_len="$3"
   local max_num_seqs="$4"
 
-  local patch_ops=()
-
-  if [[ -n "$gpu_mem" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/4\",\"value\":\"--gpu-memory-utilization=$gpu_mem\"}")
-  fi
-
-  if [[ -n "$max_model_len" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/5\",\"value\":\"--max-model-len=$max_model_len\"}")
-  fi
-
-  if [[ -n "$max_num_seqs" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/6\",\"value\":\"--max-num-seqs=$max_num_seqs\"}")
-  fi
-
-  if [[ "${#patch_ops[@]}" -eq 0 ]]; then
+  if [[ -z "$gpu_mem" && -z "$max_model_len" && -z "$max_num_seqs" ]]; then
     return 0
   fi
 
   echo "Applying vLLM overrides to deployment/$deployment_name..."
-  kubectl patch deployment "$deployment_name" -n llm --type='json' -p="[$(IFS=,; echo "${patch_ops[*]}")]"
+
+  local current_args_json
+  local updated_args_json
+  local patch_payload
+
+  current_args_json="$(kubectl get deployment "$deployment_name" -n llm -o json | python3 -c 'import json,sys; obj=json.load(sys.stdin); print(json.dumps(obj["spec"]["template"]["spec"]["containers"][0].get("args", [])))')"
+
+  updated_args_json="$(python3 - "$current_args_json" "$gpu_mem" "$max_model_len" "$max_num_seqs" <<'PYEOF'
+import json
+import sys
+
+args = json.loads(sys.argv[1])
+gpu_mem = sys.argv[2]
+max_model_len = sys.argv[3]
+max_num_seqs = sys.argv[4]
+
+def set_or_append(prefix: str, value: str) -> None:
+    if not value:
+        return
+    new_arg = f"{prefix}{value}"
+    for i, arg in enumerate(args):
+        if arg.startswith(prefix):
+            args[i] = new_arg
+            return
+
+    if prefix == "--max-num-seqs=":
+        for i, arg in enumerate(args):
+            if arg.startswith("--max-model-len="):
+                args.insert(i + 1, new_arg)
+                return
+
+    args.append(new_arg)
+
+set_or_append("--gpu-memory-utilization=", gpu_mem)
+set_or_append("--max-model-len=", max_model_len)
+set_or_append("--max-num-seqs=", max_num_seqs)
+
+print(json.dumps(args, separators=(",", ":")))
+PYEOF
+)"
+
+patch_payload="$(python3 - "$updated_args_json" <<'PYEOF'
+import json
+import sys
+
+args = json.loads(sys.argv[1])
+print(json.dumps([
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/args",
+    "value": args
+  }
+], separators=(",", ":")))
+PYEOF
+)"
+
+kubectl patch deployment "$deployment_name" -n llm --type='json' -p="$patch_payload"
 }
 
 disable_vllm_tool_calling() {
