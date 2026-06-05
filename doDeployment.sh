@@ -274,6 +274,8 @@ for required_file in \
   "$DEPLOYMENT_DIR/llm-model-cache-pvc.yaml" \
   "$DEPLOYMENT_DIR/nvidia-time-slicing.yaml" \
   "$DEPLOYMENT_DIR/llm-ingress.yaml" \
+  "$DEPLOYMENT_DIR/litellm-proxy.yaml" \
+  "$DEPLOYMENT_DIR/litellm-anthropic-ingress.yaml" \
   "$DEPLOYMENT_DIR/openwebui-deployment.yaml" \
   "$DEPLOYMENT_DIR/openwebui-ingress.yaml"; do
   if [[ ! -f "$required_file" ]]; then
@@ -320,32 +322,97 @@ apply_timeslicing_config() {
   kubectl rollout status daemonset/nvidia-device-plugin-daemonset -n gpu-operator --timeout=5m >/dev/null 2>&1 || true
 }
 
+restart_ingress_controller() {
+  # Prefer the standard ingress-nginx deployment names and restart whichever exists.
+  local restarted="false"
+
+  if kubectl get deployment ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1; then
+    echo "Restarting ingress controller: deployment/ingress-nginx-controller (namespace ingress-nginx)..."
+    kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx
+    kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
+    restarted="true"
+  fi
+
+  if kubectl get deployment nginx-ingress-controller -n ingress-nginx >/dev/null 2>&1; then
+    echo "Restarting ingress controller: deployment/nginx-ingress-controller (namespace ingress-nginx)..."
+    kubectl rollout restart deployment/nginx-ingress-controller -n ingress-nginx
+    kubectl rollout status deployment/nginx-ingress-controller -n ingress-nginx --timeout=5m
+    restarted="true"
+  fi
+
+  if [[ "$restarted" != "true" ]]; then
+    echo "No ingress controller deployment found in namespace ingress-nginx. Skipping ingress controller restart."
+  fi
+}
+
 patch_vllm_deployment() {
   local deployment_name="$1"
   local gpu_mem="$2"
   local max_model_len="$3"
   local max_num_seqs="$4"
 
-  local patch_ops=()
-
-  if [[ -n "$gpu_mem" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/4\",\"value\":\"--gpu-memory-utilization=$gpu_mem\"}")
-  fi
-
-  if [[ -n "$max_model_len" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/5\",\"value\":\"--max-model-len=$max_model_len\"}")
-  fi
-
-  if [[ -n "$max_num_seqs" ]]; then
-    patch_ops+=("{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args/6\",\"value\":\"--max-num-seqs=$max_num_seqs\"}")
-  fi
-
-  if [[ "${#patch_ops[@]}" -eq 0 ]]; then
+  if [[ -z "$gpu_mem" && -z "$max_model_len" && -z "$max_num_seqs" ]]; then
     return 0
   fi
 
   echo "Applying vLLM overrides to deployment/$deployment_name..."
-  kubectl patch deployment "$deployment_name" -n llm --type='json' -p="[$(IFS=,; echo "${patch_ops[*]}")]"
+
+  local current_args_json
+  local updated_args_json
+  local patch_payload
+
+  current_args_json="$(kubectl get deployment "$deployment_name" -n llm -o json | python3 -c 'import json,sys; obj=json.load(sys.stdin); print(json.dumps(obj["spec"]["template"]["spec"]["containers"][0].get("args", [])))')"
+
+  updated_args_json="$(python3 - "$current_args_json" "$gpu_mem" "$max_model_len" "$max_num_seqs" <<'PYEOF'
+import json
+import sys
+
+args = json.loads(sys.argv[1])
+gpu_mem = sys.argv[2]
+max_model_len = sys.argv[3]
+max_num_seqs = sys.argv[4]
+
+def set_or_append(prefix: str, value: str) -> None:
+    if not value:
+        return
+    new_arg = f"{prefix}{value}"
+    for i, arg in enumerate(args):
+        if arg.startswith(prefix):
+            args[i] = new_arg
+            return
+
+    if prefix == "--max-num-seqs=":
+        for i, arg in enumerate(args):
+            if arg.startswith("--max-model-len="):
+                args.insert(i + 1, new_arg)
+                return
+
+    args.append(new_arg)
+
+set_or_append("--gpu-memory-utilization=", gpu_mem)
+set_or_append("--max-model-len=", max_model_len)
+set_or_append("--max-num-seqs=", max_num_seqs)
+
+print(json.dumps(args, separators=(",", ":")))
+PYEOF
+)"
+
+patch_payload="$(python3 - "$updated_args_json" <<'PYEOF'
+import json
+import sys
+
+args = json.loads(sys.argv[1])
+print(json.dumps([
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/args",
+    "value": args
+  }
+], separators=(",", ":")))
+PYEOF
+)"
+
+kubectl patch deployment "$deployment_name" -n llm --type='json' -p="$patch_payload"
 }
 
 disable_vllm_tool_calling() {
@@ -412,6 +479,82 @@ ensure_gpu_operator() {
   kubectl rollout status deployment/gpu-operator -n gpu-operator --timeout=10m
 }
 
+ensure_docker_dns() {
+  # Verify Docker containers can resolve external DNS. If not, add Google DNS
+  # to /etc/docker/daemon.json and restart Docker + Minikube.
+  echo "Checking Docker container DNS resolution..."
+  if docker run --rm alpine nslookup ghcr.io >/dev/null 2>&1; then
+    echo "Docker DNS OK."
+    return 0
+  fi
+
+  echo "Docker containers cannot resolve external DNS. Fixing /etc/docker/daemon.json..."
+
+  local daemon_json="/etc/docker/daemon.json"
+  local tmp
+  tmp="$(mktemp)"
+
+  if [[ -f "$daemon_json" ]]; then
+    # Merge dns key into existing JSON using python3 (always available on Ubuntu)
+    sudo python3 - "$daemon_json" "$tmp" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    cfg = json.load(f)
+cfg["dns"] = ["8.8.8.8", "8.8.4.4"]
+with open(sys.argv[2], "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+  else
+    echo '{"dns":["8.8.8.8","8.8.4.4"]}' | sudo tee "$tmp" >/dev/null
+  fi
+
+  sudo cp "$tmp" "$daemon_json"
+  rm -f "$tmp"
+
+  echo "Restarting Docker..."
+  sudo systemctl restart docker
+
+  echo "Restarting Minikube to pick up new Docker config..."
+  minikube stop || true
+  minikube start --driver=docker --cpus=no-limit --memory=no-limit --gpus=all
+
+  if ! docker run --rm alpine nslookup ghcr.io >/dev/null 2>&1; then
+    echo "ERROR: Docker DNS still not resolving after fix. Check /etc/docker/daemon.json and network settings."
+    exit 1
+  fi
+  echo "Docker DNS resolution confirmed."
+}
+
+start_port_forwards() {
+  # Kill any existing port-forwards for these ports so we get a clean slate.
+  pkill -f 'kubectl.*port-forward.*svc/llm-active' 2>/dev/null || true
+  pkill -f 'kubectl.*port-forward.*svc/openwebui-service' 2>/dev/null || true
+  sleep 1
+
+  echo "Starting port-forward: llm-active -> host:8081 (LLM/Anthropic API)..."
+  nohup kubectl port-forward svc/llm-active 8081:80 -n llm \
+    >"$ROOT_DIR/logs/port-forward-llm.log" 2>&1 &
+
+  echo "Starting port-forward: openwebui-service -> host:8080 (OpenWebUI)..."
+  nohup kubectl -n openwebui port-forward --address 0.0.0.0 svc/openwebui-service 8080:8080 \
+    >"$ROOT_DIR/logs/port-forward-openwebui.log" 2>&1 &
+
+  # Brief pause to let port-forwards bind before returning
+  sleep 3
+
+  # Report status
+  if pgrep -f 'kubectl.*port-forward.*svc/llm-active' >/dev/null 2>&1; then
+    echo "  llm-active    -> http://localhost:8081/v1  [OK]"
+  else
+    echo "  llm-active    port-forward failed. Check logs/port-forward-llm.log"
+  fi
+  if pgrep -f 'kubectl.*port-forward.*svc/openwebui-service' >/dev/null 2>&1; then
+    echo "  openwebui     -> http://openwebui.local:8080  [OK]"
+  else
+    echo "  openwebui     port-forward failed. Check logs/port-forward-openwebui.log"
+  fi
+}
+
 echo "Checking cluster connectivity..."
 if ! kubectl cluster-info >/dev/null 2>&1; then
   echo "Cannot reach Kubernetes cluster with current kubectl context"
@@ -448,6 +591,10 @@ Model manifest: $MODEL_MANIFEST
 EOF
   exit 0
 fi
+
+ensure_docker_dns
+
+mkdir -p "$ROOT_DIR/logs"
 
 echo "Ensuring namespaces exist..."
 kubectl create namespace llm --dry-run=client -o yaml | kubectl apply -f -
@@ -516,8 +663,11 @@ fi
 echo "Applying shared ingress and OpenWebUI resources..."
 apply_timeslicing_config
 kubectl apply -f "$DEPLOYMENT_DIR/llm-ingress.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/litellm-proxy.yaml"
+kubectl apply -f "$DEPLOYMENT_DIR/litellm-anthropic-ingress.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-deployment.yaml"
 kubectl apply -f "$DEPLOYMENT_DIR/openwebui-ingress.yaml"
+restart_ingress_controller
 
 echo "Waiting for model rollout..."
 kubectl rollout status deployment/"$MODEL_DEPLOYMENT" -n llm --timeout=20m
@@ -527,8 +677,14 @@ if [[ -n "$COMPANION_DEPLOYMENT" ]]; then
   kubectl rollout status deployment/"$COMPANION_DEPLOYMENT" -n llm --timeout=20m
 fi
 
+echo "Waiting for LiteLLM proxy rollout..."
+kubectl rollout status deployment/litellm-proxy -n llm --timeout=10m
+
 echo "Waiting for OpenWebUI rollout..."
 kubectl rollout status deployment/openwebui-deployment -n openwebui --timeout=10m
+
+echo "Starting host port-forwards..."
+start_port_forwards
 
 cat <<EOF
 
@@ -542,7 +698,12 @@ Check-only: $CHECK_ONLY
 Active model service: llm-active.llm.svc.cluster.local
 Image generation service: t2i-active.llm.svc.cluster.local
 OpenWebUI model endpoint URL: http://llm-active.llm.svc.cluster.local/v1
+Anthropic-compatible proxy URL: http://llm.local/anthropic
 Image endpoint URL: http://image.local/v1/images/generations
+Host port-forwards:
+  LLM/Anthropic API -> http://localhost:8081/v1
+  OpenWebUI        -> http://openwebui.local:8080
+Port-forward logs: $ROOT_DIR/logs/
 
 If model pull is slow on first startup, check logs:
   kubectl logs -n llm deployment/$MODEL_DEPLOYMENT -f

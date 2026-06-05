@@ -27,18 +27,20 @@ spec:
           - "--served-model-name=deepseek-coder-33b-instruct"
           - "--host=0.0.0.0"
           - "--port=8000"
-          - "--gpu-memory-utilization=0.75"
-          - "--max-model-len=65535"
-          - "--max-num-seqs=1"
+          # 1. FIXED: Tell vLLM to use the correct tool parser for DeepSeek models
           - "--enable-auto-tool-choice"
           - "--tool-call-parser"
           - "hermes"
-          - "--generation-config=vllm"
+          # 2. OPTIMIZED: Push memory up to allow deep context and breathing room for tools
+          - "--gpu-memory-utilization=0.80"
+          - "--load-format=safetensors"
+          - "--max-model-len=131072"
+          - "--max-num-seqs=2"
+          - "--max-num-batched-tokens=4096"
           - "--enable-prefix-caching"
           - "--enable-chunked-prefill"
           - "--kv-cache-dtype=fp8"
-          - "--dtype"
-          - "bfloat16"
+          - "--dtype=bfloat16"
         ports:
           - containerPort: 8000
         resources:

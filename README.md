@@ -143,9 +143,17 @@ After saving, an image icon will appear in the OpenWebUI chat input bar. Click i
 
 - Internal cluster endpoint (OpenWebUI): `http://llm-active.llm.svc.cluster.local/v1`
 - LAN/client endpoint (Roo, external tools): `http://llm.local/v1`
+- Anthropic-compatible endpoint (Claude via LiteLLM): `http://llm.local/anthropic`
 - LAN OpenWebUI endpoint: `http://openwebui.local:8080`
 - LAN image endpoint (native): `http://image.local/generate`
 - LAN image endpoint (OpenAI-compatible): `http://image.local/v1/images/generations`
+
+Claude tool-call caveat:
+
+- Claude can connect successfully but still fail to execute tools if the active model does not emit Claude-compatible structured tool calls.
+- A common symptom is literal text like `call:Bash{...}` printed in chat instead of tool execution.
+- Also ensure `claude-code.model` exactly matches an id from `http://llm.local/v1/models`.
+- See [docs/troubleshooting.md](docs/troubleshooting.md) for the recovery flow.
 
 If using LAN clients, map `llm.local`, `openwebui.local`, and `image.local` to your DGX LAN IP in your host file.
 

@@ -147,3 +147,53 @@ For image generation in OpenWebUI using this model runtime:
 2. Set Base URL to `http://image.local/v1`
 3. Use any non-empty API key value if required by the UI
 4. Select image model id `sd35-large-tensorrt`
+
+## Configure Claude Code (Anthropic-compatible via LiteLLM)
+
+`doDeployment.sh` now deploys a LiteLLM proxy service that translates Anthropic-style requests to your active OpenAI-compatible vLLM model.
+
+Important model-routing nuance:
+
+- `llm-active` points to one active backend model deployment at a time.
+- Claude Code must send that same model id (exact case/spelling).
+- If Claude sends a different model name, vLLM returns `404 The model <name> does not exist` even when pods are healthy.
+
+Before setting `claude-code.model`, check the currently served id:
+
+```bash
+curl -s http://llm.local/v1/models -H "Authorization: Bearer <your-api-key>" | jq -r '.data[].id'
+```
+
+Use one of the returned ids exactly as `claude-code.model`.
+
+Preferred Claude deployment in this repo:
+
+```bash
+./doDeployment.sh google/gemma-4-31B-it
+```
+
+When this model is active, set `claude-code.model` to `gemma-4-31B-it`.
+
+Use these values in Claude Code:
+
+- `ANTHROPIC_BASE_URL`: `http://llm.local/anthropic`
+- `ANTHROPIC_AUTH_TOKEN`: value of `API_KEY` from secret `llm-api-key`
+
+Example VS Code settings snippet:
+
+```json
+"claude-code.environmentVariables": [
+   {
+      "name": "ANTHROPIC_BASE_URL",
+      "value": "http://llm.local/anthropic"
+   },
+   {
+      "name": "ANTHROPIC_AUTH_TOKEN",
+      "value": "<your-api-key>"
+   }
+],
+"claude-code.model": "<exact-id-from-/v1/models>",
+"claude-code.disableLoginPrompt": true
+```
+
+If the extension keeps using a stale model after settings changes, reload the VS Code window and start a new Claude session.
