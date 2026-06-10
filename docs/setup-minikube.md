@@ -10,9 +10,17 @@ kubectl version --client
 
 ## Install Minikube (Linux)
 
+### For AMD64 architecture
 ```bash
 curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
+minikube version
+```
+
+### For ARM64/aarch64 architecture
+```bash
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64
+sudo install minikube-linux-arm64 /usr/local/bin/minikube
 minikube version
 ```
 
